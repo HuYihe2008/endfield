@@ -373,24 +373,35 @@ def build_cs_login_body(ctx: dict[str, Any]) -> tuple[bytes, dict[str, Any]]:
         field_trace.append(item)
 
     msg = b""
-    if branch_tag:
-        encoded = encode_string(1, branch_tag)
-        _append_field(1, "branch_tag", encoded, wire_type=2, detail={"value": branch_tag, "value_len": len(branch_tag.encode("utf-8"))})
+    # Field 1: branch_tag (始终发送)
+    encoded = encode_string(1, branch_tag)
+    _append_field(1, "branch_tag", encoded, wire_type=2, detail={"value": branch_tag, "value_len": len(branch_tag.encode("utf-8"))})
+
+    # Field 2: client_res_version (始终发送)
     if online_res_version:
         encoded = encode_string(2, online_res_version)
         _append_field(2, "client_res_version", encoded, wire_type=2, detail={"value": online_res_version, "value_len": len(online_res_version.encode("utf-8"))})
+
+    # Field 3: client_version (始终发送)
     if launcher_version:
         encoded = encode_string(3, launcher_version)
         _append_field(3, "client_version", encoded, wire_type=2, detail={"value": launcher_version, "value_len": len(launcher_version.encode("utf-8"))})
-    if a13_value:
-        encoded = encode_string(4, a13_value)
-        _append_field(4, "a13", encoded, wire_type=2, detail={"value": a13_value, "value_len": len(a13_value.encode("utf-8"))})
+
+    # Field 4: a13 (始终发送，即使是空字符串)
+    encoded = encode_string(4, a13_value)
+    _append_field(4, "a13", encoded, wire_type=2, detail={"value": a13_value, "value_len": len(a13_value.encode("utf-8"))})
+
+    # Field 5: uid (始终发送)
     if a1_value:
         encoded = encode_string(5, a1_value)
         _append_field(5, "uid", encoded, wire_type=2, detail={"value": a1_value, "value_len": len(a1_value.encode("utf-8"))})
+
+    # Field 6: token (始终发送)
     if a2_value:
         encoded = encode_string(6, a2_value)
         _append_field(6, "token", encoded, wire_type=2, detail={"value_len": len(a2_value.encode("utf-8")), "value_sha256": hashlib.sha256(a2_value.encode("utf-8")).hexdigest()})
+
+    # Field 7: client_public_key (始终发送)
     if client_public_key_bytes:
         encoded = encode_bytes(7, client_public_key_bytes)
         _append_field(
@@ -405,28 +416,39 @@ def build_cs_login_body(ctx: dict[str, Any]) -> tuple[bytes, dict[str, Any]]:
             },
         )
 
+    # Field 8: platform_id (始终发送)
     encoded = encode_uint32(8, platform_id)
     _append_field(8, "platform_id", encoded, wire_type=0, detail={"value": platform_id})
-    if area != 0 or force_emit_a10:
-        encoded = encode_uint32(9, area)
-        _append_field(9, "area", encoded, wire_type=0, detail={"value": area, "forced": force_emit_a10})
-    if a12_value:
-        encoded = encode_uint32(10, a12_value)
-        _append_field(10, "a12", encoded, wire_type=0, detail={"value": a12_value})
-    if a5_value:
-        encoded = encode_uint64(11, a5_value)
-        _append_field(11, "a5", encoded, wire_type=0, detail={"value": a5_value})
+
+    # Field 9: area (始终发送)
+    encoded = encode_uint32(9, area)
+    _append_field(9, "area", encoded, wire_type=0, detail={"value": area, "forced": force_emit_a10})
+
+    # Field 10: a12 (始终发送)
+    encoded = encode_uint32(10, a12_value)
+    _append_field(10, "a12", encoded, wire_type=0, detail={"value": a12_value})
+
+    # Field 11: a5 (始终发送，即使是 0)
+    encoded = encode_uint64(11, a5_value)
+    _append_field(11, "a5", encoded, wire_type=0, detail={"value": a5_value})
+
+    # Field 12: env (始终发送)
     encoded = encode_uint32(12, env)
     _append_field(12, "env", encoded, wire_type=0, detail={"value": env})
-    if a21_value:
-        encoded = encode_uint32(13, a21_value)
-        _append_field(13, "a21", encoded, wire_type=0, detail={"value": a21_value})
-    if a22_value:
-        encoded = encode_uint32(14, a22_value)
-        _append_field(14, "a22", encoded, wire_type=0, detail={"value": a22_value})
-    if a4_value:
-        encoded = encode_uint32(15, a4_value)
-        _append_field(15, "a4", encoded, wire_type=0, detail={"value": a4_value})
+
+    # Field 13: a21 (始终发送)
+    encoded = encode_uint32(13, a21_value)
+    _append_field(13, "a21", encoded, wire_type=0, detail={"value": a21_value})
+
+    # Field 14: a22 (始终发送)
+    encoded = encode_uint32(14, a22_value)
+    _append_field(14, "a22", encoded, wire_type=0, detail={"value": a22_value})
+
+    # Field 15: a4 (始终发送，即使是 0)
+    encoded = encode_uint32(15, a4_value)
+    _append_field(15, "a4", encoded, wire_type=0, detail={"value": a4_value})
+
+    # Field 16: client_language (始终发送)
     encoded = encode_uint32(16, client_language)
     _append_field(16, "client_language", encoded, wire_type=0, detail={"value": client_language})
     if device_info_payload:
@@ -724,6 +746,10 @@ class TCPClient:
         cs_body_plain, body_meta = build_cs_login_body(ctx)
         cs_body = cs_body_plain
         encrypted = False
+
+        # 输出明文前 32 字节用于调试
+        logger.info(f"[TCP] CsLogin 明文前 32 字节：{cs_body_plain[:32].hex()}")
+        logger.info(f"[TCP] CsLogin 明文长度：{len(cs_body_plain)}")
 
         if self.srsa_bridge is not None:
             try:

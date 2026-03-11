@@ -41,6 +41,13 @@ class SRSABridge:
         return int(self._get_ver())
 
     def encrypt_login_body(self, plain: bytes) -> bytes:
+        """
+        加密登录 body，添加 SRSA 头部格式：
+        - 4 字节 magic: 05 0f 09 0c
+        - 实际加密数据
+
+        注意：根据抓包分析，整个 SRSA body 长度为 1312 字节，包含 4 字节 magic
+        """
         src = (ctypes.c_ubyte * len(plain)).from_buffer_copy(plain)
         ptr = ctypes.cast(src, ctypes.c_void_p).value
         if ptr is None:
@@ -55,7 +62,12 @@ class SRSABridge:
             out_len = ctypes.c_int32.from_address(decoded_ptr + 4).value
             if out_len <= 0 or out_len > MAX_LEN:
                 raise SRSABridgeError(f"encrypt out_len invalid: {out_len}")
-            return ctypes.string_at(decoded_ptr, out_len)
+
+            encrypted_data = ctypes.string_at(decoded_ptr, out_len)
+
+            # 添加 SRSA magic 头
+            srsa_magic = b"\x05\x0f\x09\x0c"
+            return srsa_magic + encrypted_data
         finally:
             self._remove_code(handle)
 

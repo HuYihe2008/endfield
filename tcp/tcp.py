@@ -355,10 +355,12 @@ def build_cs_login_body(ctx: dict[str, Any]) -> tuple[bytes, dict[str, Any]]:
     client_language = _to_int(ctx.get("client_language"), 0)
     
     disable_client_public_key = _to_bool(ctx.get("disable_client_public_key"))
-    client_public_key_bytes, client_public_key_format = _resolve_client_public_key_bytes(ctx)
+    
+    # client_public_key 是 string 类型
+    # 尝试使用 Base64 格式（不含 PEM 头尾和换行）
+    client_public_key_str = str(ctx.get("client_public_key_b64") or ctx.get("client_public_key") or "")
     if disable_client_public_key:
-        client_public_key_bytes = b""
-        client_public_key_format = "disabled"
+        client_public_key_str = ""
 
     field_trace: list[dict[str, Any]] = []
 
@@ -375,7 +377,7 @@ def build_cs_login_body(ctx: dict[str, Any]) -> tuple[bytes, dict[str, Any]]:
         field_trace.append(item)
 
     msg = b""
-    
+
     # Field 1: channel (始终发送，即使是空字符串)
     # 服务器可能期望 field 1 始终存在
     encoded = encode_string(1, channel)
@@ -402,17 +404,17 @@ def build_cs_login_body(ctx: dict[str, Any]) -> tuple[bytes, dict[str, Any]]:
         _append_field(6, "token", encoded, wire_type=2, detail={"value_len": len(token.encode("utf-8")), "value_sha256": hashlib.sha256(token.encode("utf-8")).hexdigest()})
 
     # Field 7: client_public_key (仅在非空时发送)
-    if client_public_key_bytes:
-        encoded = encode_bytes(7, client_public_key_bytes)
+    # 注意：这是 string 类型，应该发送 PEM 格式的公钥字符串
+    if client_public_key_str:
+        encoded = encode_string(7, client_public_key_str)
         _append_field(
             7,
             "client_public_key",
             encoded,
             wire_type=2,
             detail={
-                "value_len": len(client_public_key_bytes),
-                "value_sha256": hashlib.sha256(client_public_key_bytes).hexdigest(),
-                "format": client_public_key_format,
+                "value_len": len(client_public_key_str),
+                "value_sha256": hashlib.sha256(client_public_key_str.encode("utf-8")).hexdigest(),
             },
         )
 
@@ -446,26 +448,25 @@ def build_cs_login_body(ctx: dict[str, Any]) -> tuple[bytes, dict[str, Any]]:
         "area": area,
         "env": env,
         "client_language": client_language,
-        "client_public_key_len": len(client_public_key_bytes),
-        "client_public_key_format": client_public_key_format,
+        "client_public_key_len": len(client_public_key_str),
         "field_trace": field_trace,
         "field_order": [item["field_no"] for item in field_trace],
         "body_len": len(msg),
         "body_sha256": hashlib.sha256(msg).hexdigest(),
     }
-    
+
     # 输出详细字段信息用于调试
     logger.info(f"[TCP] CsLogin 字段详情 (padding 前):")
     for item in field_trace:
         if item["field_no"] == 6:  # token
             logger.info(f"  Field {item['field_no']} ({item['label']}): encoded_len={item['encoded_len']}, value_len={item.get('value_len', 'N/A')}, sha256={item.get('value_sha256', 'N/A')[:16]}...")
         elif item["field_no"] == 7:  # client_public_key
-            logger.info(f"  Field {item['field_no']} ({item['label']}): encoded_len={item['encoded_len']}, value_len={item.get('value_len', 'N/A')}, format={item.get('format', 'N/A')}")
+            logger.info(f"  Field {item['field_no']} ({item['label']}): encoded_len={item['encoded_len']}, value_len={item.get('value_len', 'N/A')}")
         else:
             logger.info(f"  Field {item['field_no']} ({item['label']}): encoded_len={item['encoded_len']}")
-    
-    logger.info(f"[TCP] build_cs_login_body 输出长度：{len(msg)} (token 原始长度：{len(token)})")
-    
+
+    logger.info(f"[TCP] build_cs_login_body 输出长度：{len(msg)} (token 原始长度：{len(token)}, client_public_key 长度：{len(client_public_key_str)})")
+
     return msg, meta
 
 
@@ -722,9 +723,14 @@ class TCPClient:
                 format=serialization.PublicFormat.SubjectPublicKeyInfo,
             )
             ctx["client_public_key_der_bytes"] = der_bytes
-            logger.info(f"[TCP] RSA 密钥对生成：PEM 长度={len(public_key)}, DER 长度={len(der_bytes)}, DER 前 32 字节={der_bytes[:32].hex()}")
+            # 将 DER 编码转换为 Base64 字符串（不含 PEM 头尾和换行）
+            import base64
+            b64_str = base64.b64encode(der_bytes).decode('ascii')
+            ctx["client_public_key_b64"] = b64_str
+            logger.info(f"[TCP] RSA 密钥对生成：PEM 长度={len(public_key)}, DER 长度={len(der_bytes)}, Base64 长度={len(b64_str)}")
         except Exception as e:
             logger.error(f"[TCP] RSA 密钥转换失败：{e}")
+            ctx["client_public_key_b64"] = ""
         ctx["client_public_key_format"] = "der"
 
         cs_body_plain, body_meta = build_cs_login_body(ctx)

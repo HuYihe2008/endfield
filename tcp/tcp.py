@@ -876,19 +876,31 @@ class TCPClient:
         head_len = len(cs_head)
         body_len = len(cs_body)
 
-        # 构建单包：HeadLen(1) + BodyLen(2) + CSHead + Body
-        packet = bytearray()
-        packet.append(head_len)
-        packet.extend(struct.pack("<H", body_len))
-        packet.extend(cs_head)
-        packet.extend(cs_body)
+        # 根据抓包，登录流程使用两个独立的 TCP 包：
+        # 包 1: TCP 头部 (3 字节) + CSHead (8 字节) = 11 字节
+        # 包 2: SRSA 加密数据 (1312 字节)
+        
+        # 构建第一个包：TCP 头部 + CSHead
+        head_packet = bytearray()
+        head_packet.append(head_len)
+        head_packet.extend(struct.pack("<H", body_len))
+        head_packet.extend(cs_head)
+        
+        # 第二个包：SRSA 加密 body（单独的包）
+        body_packet = cs_body
 
-        logger.info(f"[TCP] 单包发送：总长度={len(packet)}, head_len={head_len}, body_len={body_len}")
+        logger.info(f"[TCP] 双包发送：头包={len(head_packet)}字节，body 包={len(body_packet)}字节")
         logger.info(f"[TCP] CSHead hex: {cs_head.hex()}")
 
-        # 发送单包
-        self.writer.write(packet)
+        # 发送第一个包（头包）
+        self.writer.write(head_packet)
         await self.writer.drain()
+        logger.info("[TCP] 头包已发送")
+        
+        # 发送第二个包（body 包）
+        self.writer.write(body_packet)
+        await self.writer.drain()
+        logger.info("[TCP] body 包已发送")
 
         header = await self._read_exact(3)
         head_len = header[0]

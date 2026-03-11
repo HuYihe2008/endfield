@@ -1,5 +1,5 @@
 """
-TCP登录流程（对齐 Client.old 版本）
+TCP 登录流程（对齐 Client.old 版本）
 
 关键点：
 - 使用 Hg 协议包格式：HeadLen(1) + BodyLen(2, 小端) + CSHead + CsLogin
@@ -21,11 +21,9 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from tcp.srsa_bridge import SRSABridge
+from tcp.srsa_bridge import SRSABridge, SRSA_MAGIC
 
 logger = logging.getLogger(__name__)
-
-SRSA_MAGIC = b"\x05\x0f\x09\x0c"
 
 ERROR_CODES = {
     -1: "ErrUnknown",
@@ -253,7 +251,7 @@ def _build_device_info_payload(fields: dict[str, Any]) -> bytes:
 
 
 def generate_rsa_keypair() -> tuple[str, str]:
-    """生成登录使用的RSA密钥对（PEM字符串）"""
+    """生成登录使用的 RSA 密钥对（PEM 字符串）"""
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     private_pem = private_key.private_bytes(
         encoding=serialization.Encoding.PEM,
@@ -324,39 +322,43 @@ def _resolve_client_public_key_bytes(ctx: dict[str, Any]) -> tuple[bytes, str]:
 
 
 def build_cs_login_body(ctx: dict[str, Any]) -> tuple[bytes, dict[str, Any]]:
+    """
+    构建 CsLogin 消息体
+    
+    根据 proto 定义，CsLogin 只包含以下字段：
+    message CsLogin {
+        string channel = 1;
+        string client_res_version = 2;
+        string client_version = 3;
+        string uid = 5;
+        string token = 6;
+        string client_public_key = 7;
+        ClientPlatformType platform_id = 8;
+        AreaType area = 9;
+        EnvType env = 12;
+        int32 client_language = 16;
+    }
+    """
     launcher_version = _resolve_launcher_version(ctx)
     online_res_version = _resolve_online_res_version(ctx)
-    branch_tag = str(ctx.get("branch_tag") or ctx.get("a14") or "prod-obt-official")
-    a13_value = str(ctx.get("a13") or "")
     
+    # Field 1: channel (不是 branch_tag!)
     channel = str(ctx.get("channel") or "")
+    
     a1_value, a2_value = _resolve_login_a1_a2(ctx)
-
     uid = str(ctx.get("uid") or a1_value or "")
     token = str(ctx.get("token") or ctx.get("grant_code") or a2_value or "")
+    
     platform_id = _to_int(ctx.get("platform_id") or ctx.get("a9"), 3)
     area = _to_int(ctx.get("area") or ctx.get("a10"), 0)
     env = _to_int(ctx.get("env") or ctx.get("a11"), 2)
-    a12_value = _to_int(ctx.get("a12"), 2)
-    a5_value = _to_int(ctx.get("a5"), 0)
-    a21_value = _to_int(ctx.get("a21"), 1)
-    a22_value = _to_int(ctx.get("a22"), 1)
-    a4_value = _to_int(ctx.get("a4"), 0)
     client_language = _to_int(ctx.get("client_language"), 0)
-    force_emit_a10 = _to_bool(ctx.get("force_emit_a10"))
-    disable_device_info = _to_bool(ctx.get("disable_device_info"))
+    
     disable_client_public_key = _to_bool(ctx.get("disable_client_public_key"))
-    minimal_login_fields = _to_bool(ctx.get("minimal_login_fields", False))
-
-    if minimal_login_fields:
-        disable_device_info = True
-
     client_public_key_bytes, client_public_key_format = _resolve_client_public_key_bytes(ctx)
     if disable_client_public_key:
         client_public_key_bytes = b""
         client_public_key_format = "disabled"
-    device_info_fields = _resolve_device_info_fields(ctx, online_res_version)
-    device_info_payload = b"" if disable_device_info else _build_device_info_payload(device_info_fields)
 
     field_trace: list[dict[str, Any]] = []
 
@@ -373,35 +375,33 @@ def build_cs_login_body(ctx: dict[str, Any]) -> tuple[bytes, dict[str, Any]]:
         field_trace.append(item)
 
     msg = b""
-    # Field 1: branch_tag (始终发送)
-    encoded = encode_string(1, branch_tag)
-    _append_field(1, "branch_tag", encoded, wire_type=2, detail={"value": branch_tag, "value_len": len(branch_tag.encode("utf-8"))})
+    
+    # Field 1: channel (始终发送，即使是空字符串)
+    # 服务器可能期望 field 1 始终存在
+    encoded = encode_string(1, channel)
+    _append_field(1, "channel", encoded, wire_type=2, detail={"value": channel, "value_len": len(channel.encode("utf-8"))})
 
-    # Field 2: client_res_version (始终发送)
+    # Field 2: client_res_version (仅在非空时发送)
     if online_res_version:
         encoded = encode_string(2, online_res_version)
         _append_field(2, "client_res_version", encoded, wire_type=2, detail={"value": online_res_version, "value_len": len(online_res_version.encode("utf-8"))})
 
-    # Field 3: client_version (始终发送)
+    # Field 3: client_version (仅在非空时发送)
     if launcher_version:
         encoded = encode_string(3, launcher_version)
         _append_field(3, "client_version", encoded, wire_type=2, detail={"value": launcher_version, "value_len": len(launcher_version.encode("utf-8"))})
 
-    # Field 4: a13 (始终发送，即使是空字符串)
-    encoded = encode_string(4, a13_value)
-    _append_field(4, "a13", encoded, wire_type=2, detail={"value": a13_value, "value_len": len(a13_value.encode("utf-8"))})
+    # Field 5: uid (仅在非空时发送)
+    if uid:
+        encoded = encode_string(5, uid)
+        _append_field(5, "uid", encoded, wire_type=2, detail={"value": uid, "value_len": len(uid.encode("utf-8"))})
 
-    # Field 5: uid (始终发送)
-    if a1_value:
-        encoded = encode_string(5, a1_value)
-        _append_field(5, "uid", encoded, wire_type=2, detail={"value": a1_value, "value_len": len(a1_value.encode("utf-8"))})
+    # Field 6: token (仅在非空时发送)
+    if token:
+        encoded = encode_string(6, token)
+        _append_field(6, "token", encoded, wire_type=2, detail={"value_len": len(token.encode("utf-8")), "value_sha256": hashlib.sha256(token.encode("utf-8")).hexdigest()})
 
-    # Field 6: token (始终发送)
-    if a2_value:
-        encoded = encode_string(6, a2_value)
-        _append_field(6, "token", encoded, wire_type=2, detail={"value_len": len(a2_value.encode("utf-8")), "value_sha256": hashlib.sha256(a2_value.encode("utf-8")).hexdigest()})
-
-    # Field 7: client_public_key (始终发送)
+    # Field 7: client_public_key (仅在非空时发送)
     if client_public_key_bytes:
         encoded = encode_bytes(7, client_public_key_bytes)
         _append_field(
@@ -416,55 +416,25 @@ def build_cs_login_body(ctx: dict[str, Any]) -> tuple[bytes, dict[str, Any]]:
             },
         )
 
-    # Field 8: platform_id (始终发送)
-    encoded = encode_uint32(8, platform_id)
-    _append_field(8, "platform_id", encoded, wire_type=0, detail={"value": platform_id})
+    # Field 8: platform_id (仅在非零时发送)
+    if platform_id != 0:
+        encoded = encode_uint32(8, platform_id)
+        _append_field(8, "platform_id", encoded, wire_type=0, detail={"value": platform_id})
 
-    # Field 9: area (始终发送)
+    # Field 9: area (始终发送，即使是 0)
+    # 服务器可能期望 field 9 始终存在
     encoded = encode_uint32(9, area)
-    _append_field(9, "area", encoded, wire_type=0, detail={"value": area, "forced": force_emit_a10})
+    _append_field(9, "area", encoded, wire_type=0, detail={"value": area})
 
-    # Field 10: a12 (始终发送)
-    encoded = encode_uint32(10, a12_value)
-    _append_field(10, "a12", encoded, wire_type=0, detail={"value": a12_value})
+    # Field 12: env (仅在非零时发送)
+    if env != 0:
+        encoded = encode_uint32(12, env)
+        _append_field(12, "env", encoded, wire_type=0, detail={"value": env})
 
-    # Field 11: a5 (始终发送，即使是 0)
-    encoded = encode_uint64(11, a5_value)
-    _append_field(11, "a5", encoded, wire_type=0, detail={"value": a5_value})
-
-    # Field 12: env (始终发送)
-    encoded = encode_uint32(12, env)
-    _append_field(12, "env", encoded, wire_type=0, detail={"value": env})
-
-    # Field 13: a21 (始终发送)
-    encoded = encode_uint32(13, a21_value)
-    _append_field(13, "a21", encoded, wire_type=0, detail={"value": a21_value})
-
-    # Field 14: a22 (始终发送)
-    encoded = encode_uint32(14, a22_value)
-    _append_field(14, "a22", encoded, wire_type=0, detail={"value": a22_value})
-
-    # Field 15: a4 (始终发送，即使是 0)
-    encoded = encode_uint32(15, a4_value)
-    _append_field(15, "a4", encoded, wire_type=0, detail={"value": a4_value})
-
-    # Field 16: client_language (始终发送)
+    # Field 16: client_language (始终发送，即使是 0)
+    # 服务器可能期望 field 16 始终存在
     encoded = encode_uint32(16, client_language)
     _append_field(16, "client_language", encoded, wire_type=0, detail={"value": client_language})
-    if device_info_payload:
-        encoded = encode_bytes(17, device_info_payload)
-        masked_device_id = hashlib.sha256(device_info_fields["device_id"].encode("utf-8")).hexdigest() if device_info_fields["device_id"] else ""
-        _append_field(
-            17,
-            "device_info",
-            encoded,
-            wire_type=2,
-            detail={
-                "value_len": len(device_info_payload),
-                "value_sha256": hashlib.sha256(device_info_payload).hexdigest(),
-                "device_id_sha256": masked_device_id,
-            },
-        )
 
     meta = {
         "channel": channel,
@@ -478,14 +448,24 @@ def build_cs_login_body(ctx: dict[str, Any]) -> tuple[bytes, dict[str, Any]]:
         "client_language": client_language,
         "client_public_key_len": len(client_public_key_bytes),
         "client_public_key_format": client_public_key_format,
-        "has_device_info": bool(device_info_payload),
-        "device_info_len": len(device_info_payload),
-        "minimal_login_fields": minimal_login_fields,
         "field_trace": field_trace,
         "field_order": [item["field_no"] for item in field_trace],
         "body_len": len(msg),
         "body_sha256": hashlib.sha256(msg).hexdigest(),
     }
+    
+    # 输出详细字段信息用于调试
+    logger.info(f"[TCP] CsLogin 字段详情 (padding 前):")
+    for item in field_trace:
+        if item["field_no"] == 6:  # token
+            logger.info(f"  Field {item['field_no']} ({item['label']}): encoded_len={item['encoded_len']}, value_len={item.get('value_len', 'N/A')}, sha256={item.get('value_sha256', 'N/A')[:16]}...")
+        elif item["field_no"] == 7:  # client_public_key
+            logger.info(f"  Field {item['field_no']} ({item['label']}): encoded_len={item['encoded_len']}, value_len={item.get('value_len', 'N/A')}, format={item.get('format', 'N/A')}")
+        else:
+            logger.info(f"  Field {item['field_no']} ({item['label']}): encoded_len={item['encoded_len']}")
+    
+    logger.info(f"[TCP] build_cs_login_body 输出长度：{len(msg)} (token 原始长度：{len(token)})")
+    
     return msg, meta
 
 
@@ -654,7 +634,7 @@ class LoginResponse:
 
 
 class TCPClient:
-    """TCP客户端（对齐 Client.old 登录流程）"""
+    """TCP 客户端（对齐 Client.old 登录流程）"""
 
     def __init__(
         self,
@@ -675,10 +655,10 @@ class TCPClient:
                 asyncio.open_connection(host, port),
                 timeout=self.timeout,
             )
-            logger.info(f"[TCP] 连接成功: {host}:{port}")
+            logger.info(f"[TCP] 连接成功：{host}:{port}")
             return True
         except Exception as e:
-            logger.error(f"[TCP] 连接失败: {e}")
+            logger.error(f"[TCP] 连接失败：{e}")
             return False
 
     def disconnect(self) -> None:
@@ -698,10 +678,10 @@ class TCPClient:
         await self.writer.drain()
 
     def init_srsa(self) -> None:
-        """初始化SRSA加密桥接"""
-        logger.info("[SRSA] 初始化SRSA加密桥接...")
+        """初始化 SRSA 加密桥接"""
+        logger.info("[SRSA] 初始化 SRSA 加密桥接...")
         self.srsa_bridge = SRSABridge(self.dll_dir)
-        logger.info(f"[SRSA] SRSA版本: {self.srsa_bridge.version}")
+        logger.info(f"[SRSA] SRSA 版本：{self.srsa_bridge.version}")
 
     async def login(
         self,
@@ -712,7 +692,9 @@ class TCPClient:
         area: int = 0,
         env: int = 2,
     ) -> LoginResponse:
-        """执行TCP登录流程"""
+        """执行 TCP 登录流程"""
+        logger.info(f"[TCP] 登录参数：uid={uid}, grant_code={grant_code[:50]}... (总长度：{len(grant_code)})")
+        
         ctx: dict[str, Any] = {
             "uid": uid,
             "token": grant_code,
@@ -735,15 +717,128 @@ class TCPClient:
         ctx["client_public_key_bytes"] = public_key.encode("utf-8")
         try:
             pub = load_pem_public_key(public_key.encode("utf-8"))
-            ctx["client_public_key_der_bytes"] = pub.public_bytes(
+            der_bytes = pub.public_bytes(
                 encoding=serialization.Encoding.DER,
                 format=serialization.PublicFormat.SubjectPublicKeyInfo,
             )
-        except Exception:
-            pass
+            ctx["client_public_key_der_bytes"] = der_bytes
+            logger.info(f"[TCP] RSA 密钥对生成：PEM 长度={len(public_key)}, DER 长度={len(der_bytes)}, DER 前 32 字节={der_bytes[:32].hex()}")
+        except Exception as e:
+            logger.error(f"[TCP] RSA 密钥转换失败：{e}")
         ctx["client_public_key_format"] = "der"
 
         cs_body_plain, body_meta = build_cs_login_body(ctx)
+
+        # 输出构建信息用于调试
+        logger.info(f"[TCP] build_cs_login_body 输出长度：{len(cs_body_plain)}")
+        logger.info(f"[TCP] 字段顺序：{body_meta['field_order']}")
+
+        # SRSA 混合加密触发条件：输入长度 >= 1021 字节
+        # 正常客户端明文长度：1053 字节
+        # 如果明文不足 1053 字节，在 token 字段末尾添加 padding
+        HYBRID_ENCRYPT_THRESHOLD = 1053
+        if len(cs_body_plain) < HYBRID_ENCRYPT_THRESHOLD:
+            padding_needed = HYBRID_ENCRYPT_THRESHOLD - len(cs_body_plain)
+            logger.info(f"[TCP] 需要 padding: {padding_needed} 字节 (当前 {len(cs_body_plain)} -> 目标 {HYBRID_ENCRYPT_THRESHOLD})")
+
+            # 方案：在 token 字段（field 6）末尾添加 padding
+            # 使用 protobuf 解析找到 field 6 的准确位置
+            idx = -1
+            len_start = -1
+            current_len = 0
+            len_bytes = 0
+            
+            # 解析 protobuf 找到 field 6
+            i = 0
+            while i < len(cs_body_plain):
+                # 读取 tag
+                tag = 0
+                shift = 0
+                while i < len(cs_body_plain):
+                    b = cs_body_plain[i]
+                    i += 1
+                    tag |= (b & 0x7F) << shift
+                    if (b & 0x80) == 0:
+                        break
+                    shift += 7
+                
+                field_no = tag >> 3
+                wire_type = tag & 0x7
+                
+                if wire_type == 0:  # Varint
+                    # 跳过 varint 值
+                    while i < len(cs_body_plain):
+                        b = cs_body_plain[i]
+                        i += 1
+                        if (b & 0x80) == 0:
+                            break
+                elif wire_type == 1:  # 64-bit
+                    i += 8
+                elif wire_type == 2:  # Length-delimited
+                    # 解析长度
+                    length = 0
+                    shift = 0
+                    len_bytes_count = 0
+                    while i < len(cs_body_plain):
+                        b = cs_body_plain[i]
+                        i += 1
+                        len_bytes_count += 1
+                        length |= (b & 0x7F) << shift
+                        if (b & 0x80) == 0:
+                            break
+                        shift += 7
+                    
+                    if field_no == 6:  # 找到 token 字段
+                        # tag 的结束位置就是 len_start
+                        len_start = i - len_bytes_count
+                        # 重新计算 tag 占用的字节数
+                        tag_bytes = 0
+                        temp_tag = tag
+                        while temp_tag > 0x7F:
+                            tag_bytes += 1
+                            temp_tag >>= 7
+                        tag_bytes += 1
+                        idx = len_start - tag_bytes
+                        current_len = length
+                        len_bytes = len_bytes_count
+                        break
+                    
+                    i += length
+                elif wire_type == 5:  # 32-bit
+                    i += 4
+                else:
+                    logger.warning(f"[TCP] 遇到未知的 wire type: {wire_type} at position {i}")
+                    # 跳过未知类型，尝试继续解析
+                    break
+            
+            if idx != -1:
+                # 查找 token 数据结束位置
+                data_start = len_start + len_bytes
+                data_end = data_start + current_len
+
+                # 添加 padding 到 token 末尾
+                cs_body_plain = cs_body_plain[:data_end] + bytes([0x20] * padding_needed) + cs_body_plain[data_end:]
+
+                # 更新 token 字段长度 (使用 varint 编码)
+                new_len = current_len + padding_needed
+
+                # 编码新的 varint 长度
+                new_len_bytes = bytearray()
+                temp_len = new_len
+                while temp_len > 0x7F:
+                    new_len_bytes.append((temp_len & 0x7F) | 0x80)
+                    temp_len >>= 7
+                new_len_bytes.append(temp_len)
+
+                # 替换长度字节
+                cs_body_plain = cs_body_plain[:len_start] + bytes(new_len_bytes) + cs_body_plain[len_start + len_bytes:]
+
+                logger.info(f"[TCP] 在 token 字段添加 padding: +{padding_needed} 字节，总长度：{len(cs_body_plain)}")
+                logger.info(f"[TCP] token 长度：{current_len} -> {new_len} (varint 字节：{len_bytes} -> {len(new_len_bytes)})")
+            else:
+                logger.error("[TCP] 未找到 token 字段，无法添加 padding")
+                raise ValueError("未找到 token 字段")
+
         cs_body = cs_body_plain
         encrypted = False
 
@@ -755,42 +850,38 @@ class TCPClient:
             try:
                 cs_body = self.srsa_bridge.encrypt_login_body(cs_body_plain)
                 encrypted = True
-                logger.info(f"[TCP] SRSA加密后前16字节: {cs_body[:16].hex()}")
-                logger.info(f"[TCP] 是否包含SRSA头: {cs_body[:4] == SRSA_MAGIC}")
+                logger.info(f"[TCP] SRSA 加密后前 16 字节：{cs_body[:16].hex()}")
+                logger.info(f"[TCP] 是否包含 SRSA 头：{cs_body[:4] == SRSA_MAGIC}")
             except Exception as exc:
-                logger.error(f"[TCP] SRSA加密失败: {exc}")
+                logger.error(f"[TCP] SRSA 加密失败：{exc}")
                 raise
 
         msgid = 13
         seq_id = self._seq_id
         self._seq_id += 1
-        
-        # 使用抓包数据中的 checksum 值进行测试
-        # 抓包中 checksum = 428775019
+
+        # 登录包包含 msgid 和 checksum
+        # 使用抓包中的 checksum 值
         checksum = 428775019
-        logger.info(f"[TCP] 使用固定 checksum: {checksum} (0x{checksum:08x})")
-        
-        # 分两个包发送：第一个包只发CSHead，第二个包发Body
-        head_packet = build_tcp_packet(
-            msgid, 
-            b"",  # 空body
-            seq_id,
-            checksum=checksum,
-            force_emit_checksum=True,
-            body_len_override=len(cs_body)
-        )
-        
-        # 第二个包：直接发送SRSA加密的body
-        body_packet = cs_body
-        
-        logger.info(f"[TCP] 分包发送登录包:")
-        logger.info(f"[TCP]   Head包: msgid={msgid}, seq={seq_id}, len={len(head_packet)}")
-        logger.info(f"[TCP]   Body包: len={len(body_packet)}")
-        logger.info(f"[TCP] 登录包元信息: {body_meta}")
-        
-        # 分两个包发送：先发送 head，紧接着发送 body
-        self.writer.write(head_packet)
-        self.writer.write(body_packet)
+        logger.info(f"[TCP] 使用 checksum: {checksum}")
+
+        cs_head = encode_uint32(1, msgid)  # field 1: msgid
+        cs_head += encode_uint32(7, checksum)  # field 7: checksum
+        head_len = len(cs_head)
+        body_len = len(cs_body)
+
+        # 构建单包：HeadLen(1) + BodyLen(2) + CSHead + Body
+        packet = bytearray()
+        packet.append(head_len)
+        packet.extend(struct.pack("<H", body_len))
+        packet.extend(cs_head)
+        packet.extend(cs_body)
+
+        logger.info(f"[TCP] 单包发送：总长度={len(packet)}, head_len={head_len}, body_len={body_len}")
+        logger.info(f"[TCP] CSHead hex: {cs_head.hex()}")
+
+        # 发送单包
+        self.writer.write(packet)
         await self.writer.drain()
 
         header = await self._read_exact(3)
@@ -822,13 +913,13 @@ class TCPClient:
                 parsed["error_code"] = err_code
                 parsed["error_name"] = ERROR_CODES.get(err_code, f"Unknown({err_code})")
                 parsed["error_details"] = error_info.get("details", "")
-                logger.error(f"[TCP] 登录失败: {parsed['error_name']}({err_code}), details={parsed['error_details']}")
-                raise RuntimeError(f"登录失败: {parsed['error_name']}({err_code})")
+                logger.error(f"[TCP] 登录失败：{parsed['error_name']}({err_code}), details={parsed['error_details']}")
+                raise RuntimeError(f"登录失败：{parsed['error_name']}({err_code})")
             else:
                 sc_login = _parse_sc_login(resp_body)
                 if sc_login:
                     parsed["sc_login"] = sc_login
-                    logger.info(f"[TCP] 登录成功: uid={sc_login.get('uid')}")
+                    logger.info(f"[TCP] 登录成功：uid={sc_login.get('uid')}")
                     return LoginResponse(
                         uid=sc_login.get("uid", ""),
                         login_token=sc_login.get("login_token", ""),

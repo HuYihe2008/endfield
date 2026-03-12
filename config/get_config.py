@@ -21,7 +21,7 @@ LAUNCHER_VERSION_URL = (
 )
 RES_VERSION_URL = (
     "https://launcher.hypergryph.com/api/game/get_latest_resources"
-    "?appcode=6LL0KJuqHBVz33WK&platform={device}&game_version=1.0&version={version}&rand_str={rand_str}"
+    "?appcode=6LL0KJuqHBVz33WK&platform={device}&game_version={game_version}&version={version}&rand_str={rand_str}"
 )
 
 ENGINE_CONFIG_URL = "https://game-config.hypergryph.com/api/remote_config/3/prod-engine/default/{device}/engine_config"
@@ -113,7 +113,7 @@ class EndfieldConfigFetcher:
             return json.loads(pt.decode("utf-8"))
 
     def get_res_version(self, device: str, version: str, rand_str: str) -> dict[str, Any]:
-        url = RES_VERSION_URL.format(device=device, version=version, rand_str=rand_str)
+        url = RES_VERSION_URL.format(game_version="1.1", device=device, version=version, rand_str=rand_str)
         return self._get_json(url)
 
     def _get_remote_config(self, url: str) -> dict[str, Any]:
@@ -172,7 +172,7 @@ def _dump(out_dir: str, name: str, obj: Any) -> None:
 def main():
     device = "Windows"
     oversea = False
-    outdir = "../Data/tmp"
+    outdir = os.path.join(os.path.dirname(__file__), "..", "Data", "tmp")
 
     fetcher = EndfieldConfigFetcher(is_oversea=oversea)
     result = fetcher.fetch_all(device)

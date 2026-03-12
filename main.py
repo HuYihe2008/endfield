@@ -145,7 +145,7 @@ class EndfieldClient:
 async def main():
     parser = argparse.ArgumentParser(description="Endfield 无头客户端")
     parser.add_argument("--dll-dir", type=Path, required=True, help="GameAssembly.dll 所在目录")
-    parser.add_argument("--config-dir", type=Path, help="配置保存目录")
+    parser.add_argument("--config-dir", type=Path, default=Path(__file__).parent / "Data" / "tmp", help="配置保存目录")
     parser.add_argument("--skip-config", action="store_true", help="跳过配置获取")
     parser.add_argument("--oversea", action="store_true", help="使用海外服务器")
     parser.add_argument("--server-id", type=str, help="指定服务器 ID")

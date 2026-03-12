@@ -1,6 +1,6 @@
-# Endfield 无头客户端
+# 咕咕嘎嘎 无头客户端
 
-一个用于研究《终末地》登录链路的 Python 无头客户端，当前已打通以下流程：
+一个用于研究某神人游戏登录链路的 Python 无头客户端，当前已打通以下流程：
 
 - 拉取 launcher / resource / remote config
 - 鹰角通行证扫码登录
@@ -48,7 +48,7 @@ python main.py --dll-dir "C:\Users\hyh28\Documents\Hg\Data"
 
 - [main.py](main.py)：命令行入口，串起整条登录流程
 - [config/get_config.py](config/get_config.py)：launcher / resource / remote config 拉取与解密
-- [login/passport_login.py](login/passport_login.py)：鹰角通行证扫码登录
+- [login/passport_login.py](login/passport_login.py)：**通行证扫码登录
 - [login/u8_login.py](login/u8_login.py)：U8 鉴权、取授权码、拉取服务器列表
 - [tcp/tcp.py](tcp/tcp.py)：`CsLogin` 构包、TCP 登录、响应解析
 - [tcp/srsa_bridge.py](tcp/srsa_bridge.py)：调用 `GameAssembly.dll` 导出的 SRSA 桥接
@@ -64,7 +64,7 @@ python main.py --dll-dir "C:\Users\hyh28\Documents\Hg\Data"
 1. 调用 launcher 接口获取客户端版本与资源信息
 2. 下载并解密 `u8ExtraConfig.bin`
 3. 获取 `network_config` / `game_config`
-4. 通过鹰角通行证扫码拿到 `channel_token`
+4. 通过**通行证扫码拿到 `channel_token`
 5. 通过 U8 接口获取 `uid`、`grant_code` 和服务器列表
 6. 生成客户端 RSA 密钥对
 7. 构造 `CsLogin`，并通过 `GameAssembly.dll` 的 SRSA 逻辑加密
@@ -94,8 +94,6 @@ python main.py --dll-dir "C:\Users\hyh28\Documents\Hg\Data"
 ```python
 zlib.crc32(cs_body_plain) & 0xFFFFFFFF
 ```
-
-当前实现中已经移除了历史遗留的“按 1053 字节强行补 padding”逻辑，登录包只发送真实 protobuf 内容。
 
 ## 调试建议
 

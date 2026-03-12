@@ -3,7 +3,7 @@
 一个用于研究某神人游戏登录链路的 Python 无头客户端，当前已打通以下流程：
 
 - 拉取 launcher / resource / remote config
-- 鹰角通行证扫码登录
+- **通行证扫码登录
 - U8 鉴权与选服
 - 调用 `GameAssembly.dll` 中的 SRSA 逻辑加密 `CsLogin`
 - 与游戏 TCP 服务器建立连接并完成登录

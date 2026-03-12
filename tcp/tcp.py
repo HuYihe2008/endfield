@@ -606,7 +606,7 @@ def build_cs_login_body(ctx: dict[str, Any]) -> tuple[bytes, dict[str, Any]]:
         "body_sha256": hashlib.sha256(msg).hexdigest(),
     }
 
-    logger.info(f"[TCP] CsLogin 字段详情 (padding 前):")
+    logger.info("[TCP] CsLogin 字段详情:")
     for item in field_trace:
         if item["field_no"] in {6, 7}:
             logger.info(f"  Field {item['field_no']} ({item['label']}): encoded_len={item['encoded_len']}, value_len={item.get('value_len', 'N/A')}, sha256={item.get('value_sha256', 'N/A')[:16]}...")
@@ -879,153 +879,7 @@ class TCPClient:
         logger.info(f"[TCP] build_cs_login_body 输出长度：{len(cs_body_plain)}")
         logger.info(f"[TCP] 字段顺序：{body_meta['field_order']}")
 
-        # SRSA 混合加密触发条件：输入长度 >= 1021 字节
-        # 正常客户端明文长度：1053 字节
-        # 如果明文不足 1053 字节，在 token 字段末尾添加 padding
-        # 注意：由于varint编码变化（token字段长度从1字节变成2字节），
-        # 实际长度会是 1053 + 1 = 1054 字节
-        HYBRID_ENCRYPT_THRESHOLD = 1053
-        if len(cs_body_plain) < HYBRID_ENCRYPT_THRESHOLD:
-            # 计算需要的padding数量
-            # 注意：由于varint编码变化（token字段长度从1字节变成2字节），
-            # 我们需要减少1字节的padding
-            target_len = HYBRID_ENCRYPT_THRESHOLD
-
-            # 先计算初始padding
-            initial_padding = target_len - len(cs_body_plain)
-
-            # 估算varint编码变化：token字段长度是否超过127字节
-            # 如果token + padding > 127，varint需要2字节
-            # 原始token长度
-            token_len_estimate = 0
-            i = 0
-            while i < len(cs_body_plain):
-                tag, i = decode_varint(cs_body_plain, i)
-                field_no = tag >> 3
-                wire_type = tag & 0x7
-                if wire_type == 2:
-                    length, i = decode_varint(cs_body_plain, i)
-                    if field_no == 6:
-                        token_len_estimate = length
-                        break
-                    i += length
-                elif wire_type == 0:
-                    _, i = decode_varint(cs_body_plain, i)
-                else:
-                    break
-
-            # 计算新的token长度
-            new_token_len = token_len_estimate + initial_padding
-
-            # 检查varint编码变化
-            old_varint_len = 1 if token_len_estimate <= 127 else 2
-            new_varint_len = 1 if new_token_len <= 127 else 2
-            varint_change = new_varint_len - old_varint_len
-
-            # 调整padding数量
-            padding_needed = initial_padding - varint_change
-            logger.info(f"[TCP] 需要 padding: {padding_needed} 字节 (当前 {len(cs_body_plain)} -> 目标 {HYBRID_ENCRYPT_THRESHOLD}, varint变化: {varint_change})")
-
-            # 方案：在 token 字段（field 6）末尾添加 padding
-            # 使用 protobuf 解析找到 field 6 的准确位置
-            idx = -1
-            len_start = -1
-            current_len = 0
-            len_bytes = 0
-            
-            # 解析 protobuf 找到 field 6
-            i = 0
-            while i < len(cs_body_plain):
-                # 读取 tag
-                tag = 0
-                shift = 0
-                while i < len(cs_body_plain):
-                    b = cs_body_plain[i]
-                    i += 1
-                    tag |= (b & 0x7F) << shift
-                    if (b & 0x80) == 0:
-                        break
-                    shift += 7
-                
-                field_no = tag >> 3
-                wire_type = tag & 0x7
-                
-                if wire_type == 0:  # Varint
-                    # 跳过 varint 值
-                    while i < len(cs_body_plain):
-                        b = cs_body_plain[i]
-                        i += 1
-                        if (b & 0x80) == 0:
-                            break
-                elif wire_type == 1:  # 64-bit
-                    i += 8
-                elif wire_type == 2:  # Length-delimited
-                    # 解析长度
-                    length = 0
-                    shift = 0
-                    len_bytes_count = 0
-                    while i < len(cs_body_plain):
-                        b = cs_body_plain[i]
-                        i += 1
-                        len_bytes_count += 1
-                        length |= (b & 0x7F) << shift
-                        if (b & 0x80) == 0:
-                            break
-                        shift += 7
-                    
-                    if field_no == 6:  # 找到 token 字段
-                        # tag 的结束位置就是 len_start
-                        len_start = i - len_bytes_count
-                        # 重新计算 tag 占用的字节数
-                        tag_bytes = 0
-                        temp_tag = tag
-                        while temp_tag > 0x7F:
-                            tag_bytes += 1
-                            temp_tag >>= 7
-                        tag_bytes += 1
-                        idx = len_start - tag_bytes
-                        current_len = length
-                        len_bytes = len_bytes_count
-                        break
-                    
-                    i += length
-                elif wire_type == 5:  # 32-bit
-                    i += 4
-                else:
-                    logger.warning(f"[TCP] 遇到未知的 wire type: {wire_type} at position {i}")
-                    # 跳过未知类型，尝试继续解析
-                    break
-            
-            if idx != -1:
-                # 查找 token 数据结束位置
-                data_start = len_start + len_bytes
-                data_end = data_start + current_len
-
-                # 添加 padding 到 token 末尾
-                cs_body_plain = cs_body_plain[:data_end] + bytes([0x20] * padding_needed) + cs_body_plain[data_end:]
-
-                # 更新 token 字段长度 (使用 varint 编码)
-                new_len = current_len + padding_needed
-
-                # 编码新的 varint 长度
-                new_len_bytes = bytearray()
-                temp_len = new_len
-                while temp_len > 0x7F:
-                    new_len_bytes.append((temp_len & 0x7F) | 0x80)
-                    temp_len >>= 7
-                new_len_bytes.append(temp_len)
-
-                # 替换长度字节
-                cs_body_plain = cs_body_plain[:len_start] + bytes(new_len_bytes) + cs_body_plain[len_start + len_bytes:]
-
-                logger.info(f"[TCP] 在 token 字段添加 padding: +{padding_needed} 字节，总长度：{len(cs_body_plain)}")
-                logger.info(f"[TCP] token 长度：{current_len} -> {new_len} (varint 字节：{len_bytes} -> {len(new_len_bytes)})")
-            else:
-                logger.error("[TCP] 未找到 token 字段，无法添加 padding")
-                raise ValueError("未找到 token 字段")
-
         cs_body = cs_body_plain
-        encrypted = False
 
         # 输出明文前 32 字节用于调试
         logger.info(f"[TCP] CsLogin 明文前 32 字节：{cs_body_plain[:32].hex()}")
@@ -1034,7 +888,6 @@ class TCPClient:
         if self.srsa_bridge is not None:
             try:
                 cs_body = self.srsa_bridge.encrypt_login_body(cs_body_plain)
-                encrypted = True
                 logger.info(f"[TCP] SRSA 加密后前 16 字节：{cs_body[:16].hex()}")
                 logger.info(f"[TCP] 是否包含 SRSA 头：{cs_body[:4] == SRSA_MAGIC}")
             except Exception as exc:

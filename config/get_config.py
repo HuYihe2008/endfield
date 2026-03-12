@@ -172,7 +172,7 @@ def _dump(out_dir: str, name: str, obj: Any) -> None:
 def main():
     device = "Windows"
     oversea = False
-    outdir = "D:/Develop/Other/python/endfield/tmp"
+    outdir = "../Data/tmp"
 
     fetcher = EndfieldConfigFetcher(is_oversea=oversea)
     result = fetcher.fetch_all(device)

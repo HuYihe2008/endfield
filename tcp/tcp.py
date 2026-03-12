@@ -742,10 +742,49 @@ class TCPClient:
         # SRSA 混合加密触发条件：输入长度 >= 1021 字节
         # 正常客户端明文长度：1053 字节
         # 如果明文不足 1053 字节，在 token 字段末尾添加 padding
+        # 注意：由于varint编码变化（token字段长度从1字节变成2字节），
+        # 实际长度会是 1053 + 1 = 1054 字节
         HYBRID_ENCRYPT_THRESHOLD = 1053
         if len(cs_body_plain) < HYBRID_ENCRYPT_THRESHOLD:
-            padding_needed = HYBRID_ENCRYPT_THRESHOLD - len(cs_body_plain)
-            logger.info(f"[TCP] 需要 padding: {padding_needed} 字节 (当前 {len(cs_body_plain)} -> 目标 {HYBRID_ENCRYPT_THRESHOLD})")
+            # 计算需要的padding数量
+            # 注意：由于varint编码变化（token字段长度从1字节变成2字节），
+            # 我们需要减少1字节的padding
+            target_len = HYBRID_ENCRYPT_THRESHOLD
+
+            # 先计算初始padding
+            initial_padding = target_len - len(cs_body_plain)
+
+            # 估算varint编码变化：token字段长度是否超过127字节
+            # 如果token + padding > 127，varint需要2字节
+            # 原始token长度
+            token_len_estimate = 0
+            i = 0
+            while i < len(cs_body_plain):
+                tag, i = decode_varint(cs_body_plain, i)
+                field_no = tag >> 3
+                wire_type = tag & 0x7
+                if wire_type == 2:
+                    length, i = decode_varint(cs_body_plain, i)
+                    if field_no == 6:
+                        token_len_estimate = length
+                        break
+                    i += length
+                elif wire_type == 0:
+                    _, i = decode_varint(cs_body_plain, i)
+                else:
+                    break
+
+            # 计算新的token长度
+            new_token_len = token_len_estimate + initial_padding
+
+            # 检查varint编码变化
+            old_varint_len = 1 if token_len_estimate <= 127 else 2
+            new_varint_len = 1 if new_token_len <= 127 else 2
+            varint_change = new_varint_len - old_varint_len
+
+            # 调整padding数量
+            padding_needed = initial_padding - varint_change
+            logger.info(f"[TCP] 需要 padding: {padding_needed} 字节 (当前 {len(cs_body_plain)} -> 目标 {HYBRID_ENCRYPT_THRESHOLD}, varint变化: {varint_change})")
 
             # 方案：在 token 字段（field 6）末尾添加 padding
             # 使用 protobuf 解析找到 field 6 的准确位置

@@ -127,13 +127,21 @@ class EndfieldClient:
         client_version = self.get_client_version()
         logger.info(f"[TCP] 使用客户端版本：{client_version}")
 
+        login_ctx = {
+            "config": self._config or {},
+            "passport_device_token": self._passport_result.deviceToken if self._passport_result else "",
+            "device_token": self._passport_result.deviceToken if self._passport_result else "",
+            "channel_master_id": 1,
+        }
+
         login_response = await self._tcp_client.login(
             uid=uid,
             grant_code=grant_code,
             client_version=client_version,
             platform_id=3,
             area=0,
-            env=2
+            env=2,
+            login_ctx=login_ctx,
         )
 
         logger.info(f"[TCP] 登录成功！server_time: {login_response.server_time}")

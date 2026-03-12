@@ -13,6 +13,7 @@ import asyncio
 import hashlib
 import logging
 import struct
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, Optional
@@ -28,11 +29,23 @@ logger = logging.getLogger(__name__)
 ERROR_CODES = {
     -1: "ErrUnknown",
     0: "ErrSuccess",
+    32: "ErrCommonServerVersionTooLow",
+    33: "ErrCommonClientVersionNotEqual",
+    34: "ErrCommonClientResVersionNotEqual",
+    37: "ErrLoginMultipleSession",
     40: "ErrLoginTokenInvalid",
     41: "ErrLoginMsgFormatInvalid",
     42: "ErrLoginProcessLogin",
+    43: "ErrLoginSendMsg",
     44: "ErrCommonPlatformInvalid",
-    78: "ErrChecksumInvalid",
+    52: "ErrLoginQueueTimeout",
+    53: "ErrLoginQueueFull",
+    54: "ErrLoginButTransferringGs",
+    62: "ErrLoginLocUnmatch",
+    65: "ErrLoginReconnctIncrFailed",
+    76: "ErrResourceDataVersionCheckFailed",
+    77: "ErrBranchVersionCheckFailed",
+    78: "ErrChannelIdCheckFailed",
 }
 
 
@@ -145,12 +158,57 @@ def _to_bool(value: Any) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
+def _extract_version_string(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        for key in (
+            "version",
+            "resVersion",
+            "res_version",
+            "client_res_version",
+            "resourceVersion",
+            "resource_version",
+            "onlineVersion",
+            "request_version",
+        ):
+            raw = value.get(key)
+            if raw:
+                return str(raw)
+        pkg = value.get("pkg")
+        if isinstance(pkg, dict):
+            for key in ("version", "resVersion", "res_version", "client_res_version"):
+                raw = pkg.get(key)
+                if raw:
+                    return str(raw)
+    return str(value) if value != "" else ""
+
+
 def _resolve_launcher_version(ctx: dict[str, Any]) -> str:
-    return str(ctx.get("a6") or ctx.get("client_version") or ctx.get("launcher_version") or "1.0.14")
+    for candidate in (
+        ctx.get("a6"),
+        ctx.get("client_version"),
+        ctx.get("launcher_version"),
+        ctx.get("config", {}).get("launcher_version"),
+    ):
+        resolved = _extract_version_string(candidate)
+        if resolved:
+            return resolved
+    return "1.0.14"
 
 
 def _resolve_online_res_version(ctx: dict[str, Any]) -> str:
-    return str(ctx.get("a7") or ctx.get("res_version") or _resolve_launcher_version(ctx))
+    for candidate in (
+        ctx.get("a7"),
+        ctx.get("res_version"),
+        ctx.get("config", {}).get("res_version"),
+    ):
+        resolved = _extract_version_string(candidate)
+        if resolved:
+            return resolved
+    return _resolve_launcher_version(ctx)
 
 
 def _resolve_branch_tag(ctx: dict[str, Any], launcher_version: str) -> str:
@@ -165,6 +223,33 @@ def _resolve_login_a1_a2(ctx: dict[str, Any]) -> tuple[str, str]:
     uid = str(ctx.get("uid") or "")
     token = str(ctx.get("token") or ctx.get("grant_code") or "")
     return uid, token
+
+
+def _resolve_channel_id(ctx: dict[str, Any]) -> int:
+    if "a21" in ctx:
+        return _to_int(ctx.get("a21"), default=1)
+    if "channel_master_id" in ctx:
+        return _to_int(ctx.get("channel_master_id"), default=1)
+    return _to_int(
+        (ctx.get("u8_token_by_channel_token") or {}).get("channelMasterId"),
+        default=1,
+    )
+
+
+def _resolve_sub_channel(ctx: dict[str, Any]) -> int:
+    if "a22" in ctx:
+        return _to_int(ctx.get("a22"), default=1)
+    if "sub_channel" in ctx:
+        return _to_int(ctx.get("sub_channel"), default=1)
+    return _to_int(
+        (
+            ctx.get("config", {})
+            .get("launcher_version", {})
+            .get("pkg", {})
+            .get("sub_channel")
+        ),
+        default=1,
+    )
 
 
 def _ipv4_to_int(value: Any, default: int = 0) -> int:
@@ -324,43 +409,67 @@ def _resolve_client_public_key_bytes(ctx: dict[str, Any]) -> tuple[bytes, str]:
 def build_cs_login_body(ctx: dict[str, Any]) -> tuple[bytes, dict[str, Any]]:
     """
     构建 CsLogin 消息体
-    
-    根据 proto 定义，CsLogin 只包含以下字段：
-    message CsLogin {
-        string channel = 1;
-        string client_res_version = 2;
-        string client_version = 3;
-        string uid = 5;
-        string token = 6;
-        string client_public_key = 7;
-        ClientPlatformType platform_id = 8;
-        AreaType area = 9;
-        EnvType env = 12;
-        int32 client_language = 16;
-    }
+
+    对齐 Il2CppInspector 导出的 MSG_A1 / CsLogin:
+        1: string a14
+        2: string a7
+        3: string a6
+        4: string a13
+        5: string a1
+        6: string a2
+        7: bytes  a8
+        8: enum   a9
+        9: enum   a10
+        10: int32 a12
+        11: uint64 a5
+        12: enum  a11
+        13: int32 a21
+        14: int32 a22
+        15: int32 a4
+        16: int32 client_language
+        17: DEVICE_INFO a23
     """
-    launcher_version = _resolve_launcher_version(ctx)
-    online_res_version = _resolve_online_res_version(ctx)
-    
-    # Field 1: channel (不是 branch_tag!)
-    channel = str(ctx.get("channel") or "")
-    
+    launcher_version = str(ctx.get("a6") or _resolve_launcher_version(ctx))
+    online_res_version = str(ctx.get("a7") or _resolve_online_res_version(ctx))
+    branch_tag = str(ctx.get("a14") or _resolve_branch_tag(ctx, launcher_version))
+    a13_value = str(ctx.get("a13") or "")
+
     a1_value, a2_value = _resolve_login_a1_a2(ctx)
-    uid = str(ctx.get("uid") or a1_value or "")
-    token = str(ctx.get("token") or ctx.get("grant_code") or a2_value or "")
-    
-    platform_id = _to_int(ctx.get("platform_id") or ctx.get("a9"), 3)
-    area = _to_int(ctx.get("area") or ctx.get("a10"), 0)
-    env = _to_int(ctx.get("env") or ctx.get("a11"), 2)
+    public_key_bytes, public_key_format = _resolve_client_public_key_bytes(ctx)
+
+    if "a9" in ctx:
+        a9_pay_platform = _to_int(ctx.get("a9"), 3)
+    else:
+        a9_pay_platform = _to_int(ctx.get("platform_id"), 3)
+
+    if "a10" in ctx:
+        a10_area = _to_int(ctx.get("a10"), 0)
+    else:
+        a10_area = _to_int(ctx.get("area"), 0)
+
+    if "a11" in ctx:
+        a11_env = _to_int(ctx.get("a11"), 2)
+    else:
+        a11_env = _to_int(ctx.get("env"), 2)
+
+    a12_value = _to_int(ctx.get("a12"), _to_int(ctx.get("pay_platform"), 2))
+    a5_value = _to_int(ctx.get("a5"), 0)
+    a4_value = _to_int(ctx.get("a4"), 0)
     client_language = _to_int(ctx.get("client_language"), 0)
-    
+    channel_id = _resolve_channel_id(ctx)
+    sub_channel = _resolve_sub_channel(ctx)
+    force_emit_a10 = _to_bool(ctx.get("force_emit_a10"))
+    force_emit_a12 = _to_bool(ctx.get("force_emit_a12"))
+    force_emit_a5 = _to_bool(ctx.get("force_emit_a5"))
+    disable_device_info = _to_bool(ctx.get("disable_device_info"))
     disable_client_public_key = _to_bool(ctx.get("disable_client_public_key"))
-    
-    # client_public_key 是 string 类型
-    # 尝试使用 Base64 格式（不含 PEM 头尾和换行）
-    client_public_key_str = str(ctx.get("client_public_key_b64") or ctx.get("client_public_key") or "")
+
     if disable_client_public_key:
-        client_public_key_str = ""
+        public_key_bytes = b""
+        public_key_format = "disabled"
+
+    device_fields = _resolve_device_info_fields(ctx, online_res_version)
+    device_payload = b"" if disable_device_info else _build_device_info_payload(device_fields)
 
     field_trace: list[dict[str, Any]] = []
 
@@ -378,94 +487,136 @@ def build_cs_login_body(ctx: dict[str, Any]) -> tuple[bytes, dict[str, Any]]:
 
     msg = b""
 
-    # Field 1: channel (始终发送，即使是空字符串)
-    # 服务器可能期望 field 1 始终存在
-    encoded = encode_string(1, channel)
-    _append_field(1, "channel", encoded, wire_type=2, detail={"value": channel, "value_len": len(channel.encode("utf-8"))})
+    if branch_tag:
+        encoded = encode_string(1, branch_tag)
+        _append_field(1, "a14", encoded, wire_type=2, detail={"value": branch_tag, "value_len": len(branch_tag.encode("utf-8"))})
 
-    # Field 2: client_res_version (仅在非空时发送)
     if online_res_version:
         encoded = encode_string(2, online_res_version)
-        _append_field(2, "client_res_version", encoded, wire_type=2, detail={"value": online_res_version, "value_len": len(online_res_version.encode("utf-8"))})
+        _append_field(2, "a7", encoded, wire_type=2, detail={"value": online_res_version, "value_len": len(online_res_version.encode("utf-8"))})
 
-    # Field 3: client_version (仅在非空时发送)
     if launcher_version:
         encoded = encode_string(3, launcher_version)
-        _append_field(3, "client_version", encoded, wire_type=2, detail={"value": launcher_version, "value_len": len(launcher_version.encode("utf-8"))})
+        _append_field(3, "a6", encoded, wire_type=2, detail={"value": launcher_version, "value_len": len(launcher_version.encode("utf-8"))})
 
-    # Field 5: uid (仅在非空时发送)
-    if uid:
-        encoded = encode_string(5, uid)
-        _append_field(5, "uid", encoded, wire_type=2, detail={"value": uid, "value_len": len(uid.encode("utf-8"))})
+    if a13_value:
+        encoded = encode_string(4, a13_value)
+        _append_field(4, "a13", encoded, wire_type=2, detail={"value": a13_value, "value_len": len(a13_value.encode("utf-8"))})
 
-    # Field 6: token (仅在非空时发送)
-    if token:
-        encoded = encode_string(6, token)
-        _append_field(6, "token", encoded, wire_type=2, detail={"value_len": len(token.encode("utf-8")), "value_sha256": hashlib.sha256(token.encode("utf-8")).hexdigest()})
+    if a1_value:
+        encoded = encode_string(5, a1_value)
+        _append_field(5, "a1", encoded, wire_type=2, detail={"value": a1_value, "value_len": len(a1_value.encode("utf-8"))})
 
-    # Field 7: client_public_key (仅在非空时发送)
-    # 注意：这是 string 类型，应该发送 PEM 格式的公钥字符串
-    if client_public_key_str:
-        encoded = encode_string(7, client_public_key_str)
+    if a2_value:
+        encoded = encode_string(6, a2_value)
         _append_field(
-            7,
-            "client_public_key",
+            6,
+            "a2",
             encoded,
             wire_type=2,
             detail={
-                "value_len": len(client_public_key_str),
-                "value_sha256": hashlib.sha256(client_public_key_str.encode("utf-8")).hexdigest(),
+                "value_len": len(a2_value.encode("utf-8")),
+                "value_sha256": hashlib.sha256(a2_value.encode("utf-8")).hexdigest(),
             },
         )
 
-    # Field 8: platform_id (仅在非零时发送)
-    if platform_id != 0:
-        encoded = encode_uint32(8, platform_id)
-        _append_field(8, "platform_id", encoded, wire_type=0, detail={"value": platform_id})
+    if public_key_bytes:
+        encoded = encode_bytes(7, public_key_bytes)
+        _append_field(
+            7,
+            "a8",
+            encoded,
+            wire_type=2,
+            detail={
+                "value_len": len(public_key_bytes),
+                "value_sha256": hashlib.sha256(public_key_bytes).hexdigest(),
+                "value_format": public_key_format,
+            },
+        )
 
-    # Field 9: area (始终发送，即使是 0)
-    # 服务器可能期望 field 9 始终存在
-    encoded = encode_uint32(9, area)
-    _append_field(9, "area", encoded, wire_type=0, detail={"value": area})
+    if a9_pay_platform != 0:
+        encoded = encode_uint32(8, a9_pay_platform)
+        _append_field(8, "a9", encoded, wire_type=0, detail={"value": a9_pay_platform})
 
-    # Field 12: env (仅在非零时发送)
-    if env != 0:
-        encoded = encode_uint32(12, env)
-        _append_field(12, "env", encoded, wire_type=0, detail={"value": env})
+    if force_emit_a10 or a10_area != 0:
+        encoded = encode_uint32(9, a10_area)
+        _append_field(9, "a10", encoded, wire_type=0, detail={"value": a10_area})
 
-    # Field 16: client_language (始终发送，即使是 0)
-    # 服务器可能期望 field 16 始终存在
+    if force_emit_a12 or a12_value != 0:
+        encoded = encode_uint32(10, a12_value)
+        _append_field(10, "a12", encoded, wire_type=0, detail={"value": a12_value})
+
+    if force_emit_a5 or a5_value != 0:
+        encoded = encode_uint64(11, a5_value)
+        _append_field(11, "a5", encoded, wire_type=0, detail={"value": a5_value})
+
+    if a11_env != 0:
+        encoded = encode_uint32(12, a11_env)
+        _append_field(12, "a11", encoded, wire_type=0, detail={"value": a11_env})
+
+    encoded = encode_uint32(13, channel_id)
+    _append_field(13, "a21", encoded, wire_type=0, detail={"value": channel_id})
+
+    encoded = encode_uint32(14, sub_channel)
+    _append_field(14, "a22", encoded, wire_type=0, detail={"value": sub_channel})
+
+    if a4_value != 0:
+        encoded = encode_uint32(15, a4_value)
+        _append_field(15, "a4", encoded, wire_type=0, detail={"value": a4_value})
+
     encoded = encode_uint32(16, client_language)
     _append_field(16, "client_language", encoded, wire_type=0, detail={"value": client_language})
 
+    if device_payload:
+        encoded = encode_bytes(17, device_payload)
+        _append_field(
+            17,
+            "a23",
+            encoded,
+            wire_type=2,
+            detail={
+                "value_len": len(device_payload),
+                "device_id": device_fields.get("device_id", ""),
+                "device_os": device_fields.get("os", ""),
+            },
+        )
+
     meta = {
-        "channel": channel,
-        "client_res_version": online_res_version,
-        "client_version": launcher_version,
-        "uid": uid,
-        "token_len": len(token),
-        "platform_id": platform_id,
-        "area": area,
-        "env": env,
+        "a14": branch_tag,
+        "a7": online_res_version,
+        "a6": launcher_version,
+        "a13": a13_value,
+        "a1": a1_value,
+        "token_len": len(a2_value),
+        "a9": a9_pay_platform,
+        "a10": a10_area,
+        "a12": a12_value,
+        "a5": a5_value,
+        "a11": a11_env,
+        "a21": channel_id,
+        "a22": sub_channel,
+        "a4": a4_value,
         "client_language": client_language,
-        "client_public_key_len": len(client_public_key_str),
+        "client_public_key_len": len(public_key_bytes),
+        "client_public_key_format": public_key_format,
+        "device_info_len": len(device_payload),
         "field_trace": field_trace,
         "field_order": [item["field_no"] for item in field_trace],
         "body_len": len(msg),
         "body_sha256": hashlib.sha256(msg).hexdigest(),
     }
 
-    # 输出详细字段信息用于调试
     logger.info(f"[TCP] CsLogin 字段详情 (padding 前):")
     for item in field_trace:
-        if item["field_no"] == 6:  # token
+        if item["field_no"] in {6, 7}:
             logger.info(f"  Field {item['field_no']} ({item['label']}): encoded_len={item['encoded_len']}, value_len={item.get('value_len', 'N/A')}, sha256={item.get('value_sha256', 'N/A')[:16]}...")
-        elif item["field_no"] == 7:  # client_public_key
-            logger.info(f"  Field {item['field_no']} ({item['label']}): encoded_len={item['encoded_len']}, value_len={item.get('value_len', 'N/A')}")
         else:
             logger.info(f"  Field {item['field_no']} ({item['label']}): encoded_len={item['encoded_len']}")
 
-    logger.info(f"[TCP] build_cs_login_body 输出长度：{len(msg)} (token 原始长度：{len(token)}, client_public_key 长度：{len(client_public_key_str)})")
+    logger.info(
+        f"[TCP] build_cs_login_body 输出长度：{len(msg)} "
+        f"(token 原始长度：{len(a2_value)}, client_public_key 长度：{len(public_key_bytes)}, device_info 长度：{len(device_payload)})"
+    )
 
     return msg, meta
 
@@ -692,10 +843,11 @@ class TCPClient:
         platform_id: int = 3,
         area: int = 0,
         env: int = 2,
+        login_ctx: Optional[dict[str, Any]] = None,
     ) -> LoginResponse:
         """执行 TCP 登录流程"""
         logger.info(f"[TCP] 登录参数：uid={uid}, grant_code={grant_code[:50]}... (总长度：{len(grant_code)})")
-        
+
         ctx: dict[str, Any] = {
             "uid": uid,
             "token": grant_code,
@@ -709,29 +861,17 @@ class TCPClient:
             "minimal_login_fields": False,
             "disable_device_info": False,
         }
+        if login_ctx:
+            ctx.update(login_ctx)
 
         if not self.srsa_bridge:
             self.init_srsa()
 
-        public_key, private_key = generate_rsa_keypair()
+        public_key, _private_key = generate_rsa_keypair()
         ctx["client_public_key"] = public_key
         ctx["client_public_key_bytes"] = public_key.encode("utf-8")
-        try:
-            pub = load_pem_public_key(public_key.encode("utf-8"))
-            der_bytes = pub.public_bytes(
-                encoding=serialization.Encoding.DER,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo,
-            )
-            ctx["client_public_key_der_bytes"] = der_bytes
-            # 将 DER 编码转换为 Base64 字符串（不含 PEM 头尾和换行）
-            import base64
-            b64_str = base64.b64encode(der_bytes).decode('ascii')
-            ctx["client_public_key_b64"] = b64_str
-            logger.info(f"[TCP] RSA 密钥对生成：PEM 长度={len(public_key)}, DER 长度={len(der_bytes)}, Base64 长度={len(b64_str)}")
-        except Exception as e:
-            logger.error(f"[TCP] RSA 密钥转换失败：{e}")
-            ctx["client_public_key_b64"] = ""
-        ctx["client_public_key_format"] = "der"
+        ctx["client_public_key_format"] = "pem"
+        logger.info(f"[TCP] RSA 密钥对生成：PEM 长度={len(public_key)}")
 
         cs_body_plain, body_meta = build_cs_login_body(ctx)
 
@@ -905,10 +1045,8 @@ class TCPClient:
         seq_id = self._seq_id
         self._seq_id += 1
 
-        # 登录包包含 msgid 和 checksum
-        # 使用抓包中的 checksum 值
-        checksum = 428775019
-        logger.info(f"[TCP] 使用 checksum: {checksum}")
+        checksum = zlib.crc32(cs_body_plain) & 0xFFFFFFFF
+        logger.info(f"[TCP] 使用 checksum: {checksum} (0x{checksum:08x})")
 
         cs_head = encode_uint32(1, msgid)  # field 1: msgid
         cs_head += encode_uint32(7, checksum)  # field 7: checksum

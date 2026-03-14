@@ -13,16 +13,18 @@ import asyncio
 import hashlib
 import logging
 import struct
+import time
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, Optional
 
-from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from tcp.srsa_bridge import SRSABridge, SRSA_MAGIC
+from tcp.xxe1 import XXE1
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +49,36 @@ ERROR_CODES = {
     77: "ErrBranchVersionCheckFailed",
     78: "ErrChannelIdCheckFailed",
 }
+
+ERROR_EXPLANATIONS = {
+    37: "检测到同一账号/UID 已有另一条活跃会话。",
+}
+
+MSG_ID_SC_LOGIN = 1
+MSG_ID_SC_ERROR = 3
+MSG_ID_CS_PING = 5
+MSG_ID_SC_PING = 5
+MSG_ID_CS_FLUSH_SYNC = 8
+MSG_ID_SC_FLUSH_SYNC = 8
+MSG_ID_CS_SYNC_LOGICAL_TS = 11
+
+# TcpIO.EnableCryptStream constructs both XXE1 instances with counter=1.
+DEFAULT_SESSION_ENCRYPT_COUNTER = 1
+DEFAULT_SESSION_DECRYPT_COUNTER = 1
+DEFAULT_HEARTBEAT_INTERVAL_MS = 2000
+DEFAULT_FIRST_HEARTBEAT_DELAY_MS = 0
+DEFAULT_FIRST_HEARTBEAT_IDLE_WINDOW_MS = 20
+DEFAULT_SESSION_TRACE_MESSAGE_LIMIT = 24
+DEFAULT_LOGICAL_TS_STRATEGY = "time_manager_ms"
+LOGICAL_TS_STRATEGIES = {
+    "time_manager_ms",
+    "server_time_ms",
+    "server_zone",
+    "zero",
+}
+
+# Beyond.TimeManager.time is process-lifetime gameplay time, not server time.
+PROCESS_START_MONOTONIC_MS = time.monotonic_ns() // 1_000_000
 
 
 def encode_varint(value: int) -> bytes:
@@ -730,8 +762,45 @@ def build_login_head_packet(
     return bytes(packet)
 
 
+def build_cs_ping_body(client_ts: int, logical_ts: int) -> bytes:
+    return encode_uint64(1, client_ts) + encode_uint64(2, logical_ts)
+
+
+def build_cs_flush_sync_body(client_ts: int) -> bytes:
+    return encode_uint64(1, client_ts)
+
+
+def build_cs_sync_logical_ts_body(logical_ts: int) -> bytes:
+    return encode_uint64(1, logical_ts)
+
+
 def _is_srsa_encrypted(data: bytes) -> bool:
     return len(data) >= 12 and data[:4] == SRSA_MAGIC
+
+
+def _parse_cs_head(data: bytes) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    try:
+        for field_no, wire, value in iter_fields(data):
+            if wire != 0 or not isinstance(value, int):
+                continue
+            if field_no == 1:
+                out["msgid"] = value
+            elif field_no == 2:
+                out["up_seqid"] = value
+            elif field_no == 3:
+                out["down_seqid"] = value
+            elif field_no == 4:
+                out["total_pack_count"] = value
+            elif field_no == 5:
+                out["current_pack_index"] = value
+            elif field_no == 6:
+                out["is_compress"] = bool(value)
+            elif field_no == 7:
+                out["checksum"] = value
+    except Exception as exc:
+        out["parse_error"] = str(exc)
+    return out
 
 
 def _parse_sc_login(data: bytes) -> dict[str, Any]:
@@ -744,9 +813,11 @@ def _parse_sc_login(data: bytes) -> dict[str, Any]:
                 elif field_no == 2:
                     out["login_token"] = value.decode("utf-8", errors="replace")
                 elif field_no == 3:
-                    out["server_public_key"] = value.hex()
+                    out["session_key_encrypted"] = bytes(value)
                 elif field_no == 4:
-                    out["server_encryp_nonce"] = value.hex()
+                    out["session_nonce"] = bytes(value)
+                elif field_no == 11:
+                    out["server_area"] = value.decode("utf-8", errors="replace")
             elif wire == 0 and isinstance(value, int):
                 if field_no == 5:
                     out["is_client_reconnect"] = bool(value)
@@ -756,6 +827,40 @@ def _parse_sc_login(data: bytes) -> dict[str, Any]:
                     out["is_reconnect"] = bool(value)
                 elif field_no == 8:
                     out["server_time"] = value
+                elif field_no == 10:
+                    out["server_zone"] = value
+                elif field_no == 12:
+                    out["server_area_type"] = value
+    except Exception as exc:
+        out["parse_error"] = str(exc)
+    return out
+
+
+def _parse_sc_ping(data: bytes) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    try:
+        for field_no, wire, value in iter_fields(data):
+            if wire != 0 or not isinstance(value, int):
+                continue
+            if field_no == 1:
+                out["client_ts"] = value
+            elif field_no == 2:
+                out["server_ts"] = value
+    except Exception as exc:
+        out["parse_error"] = str(exc)
+    return out
+
+
+def _parse_sc_flush_sync(data: bytes) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    try:
+        for field_no, wire, value in iter_fields(data):
+            if wire != 0 or not isinstance(value, int):
+                continue
+            if field_no == 1:
+                out["client_ts"] = value
+            elif field_no == 2:
+                out["server_ts"] = value
     except Exception as exc:
         out["parse_error"] = str(exc)
     return out
@@ -778,11 +883,23 @@ def _parse_error_response(data: bytes) -> dict[str, Any]:
 class LoginResponse:
     uid: str = ""
     login_token: str = ""
-    server_public_key: str = ""
-    server_encryp_nonce: str = ""
+    session_key_encrypted: bytes = b""
+    session_nonce: bytes = b""
     server_time: int = 0
+    server_zone: int = 0
+    server_area: str = ""
+    server_area_type: int = 0
+    is_client_reconnect: bool = False
     is_first_login: bool = False
     is_reconnect: bool = False
+
+    @property
+    def server_public_key(self) -> str:
+        return self.session_key_encrypted.hex()
+
+    @property
+    def server_encryp_nonce(self) -> str:
+        return self.session_nonce.hex()
 
 
 class TCPClient:
@@ -792,14 +909,149 @@ class TCPClient:
         self,
         dll_dir: Path,
         timeout: float = 30.0,
+        *,
+        session_encrypt_counter: int = DEFAULT_SESSION_ENCRYPT_COUNTER,
+        session_decrypt_counter: int = DEFAULT_SESSION_DECRYPT_COUNTER,
+        heartbeat_interval_ms: int = DEFAULT_HEARTBEAT_INTERVAL_MS,
+        first_ping_delay_ms: int = DEFAULT_FIRST_HEARTBEAT_DELAY_MS,
+        first_ping_idle_window_ms: int = DEFAULT_FIRST_HEARTBEAT_IDLE_WINDOW_MS,
+        logical_ts_strategy: str = DEFAULT_LOGICAL_TS_STRATEGY,
     ):
         self.dll_dir = dll_dir
         self.timeout = timeout
+        self.session_encrypt_counter = int(session_encrypt_counter)
+        self.session_decrypt_counter = int(session_decrypt_counter)
+        self.heartbeat_interval_ms = max(500, int(heartbeat_interval_ms))
+        self.first_ping_delay_ms = max(0, int(first_ping_delay_ms))
+        self.first_ping_idle_window_ms = max(0, int(first_ping_idle_window_ms))
+        normalized_logical_ts_strategy = str(logical_ts_strategy or DEFAULT_LOGICAL_TS_STRATEGY).strip().lower()
+        if normalized_logical_ts_strategy not in LOGICAL_TS_STRATEGIES:
+            normalized_logical_ts_strategy = DEFAULT_LOGICAL_TS_STRATEGY
+        self.logical_ts_strategy = normalized_logical_ts_strategy
         self.srsa_bridge: Optional[SRSABridge] = None
         self.reader: Optional[asyncio.StreamReader] = None
         self.writer: Optional[asyncio.StreamWriter] = None
         self._seq_id = 1
+        self._down_seqid = 0
         self.login_parsed: dict[str, Any] = {}
+        self._client_private_key = None
+        self._login_response: Optional[LoginResponse] = None
+        self._session_key = b""
+        self._session_nonce = b""
+        self._session_encryptor: Optional[XXE1] = None
+        self._session_decryptor: Optional[XXE1] = None
+        self._session_started = False
+        self._write_lock = asyncio.Lock()
+        self._stop_event = asyncio.Event()
+        self._closed_event = asyncio.Event()
+        self._receive_task: Optional[asyncio.Task[None]] = None
+        self._ping_task: Optional[asyncio.Task[None]] = None
+        self._login_monotonic_ms = 0
+        self._last_server_time_ms = 0
+        self._session_recv_count = 0
+        self._last_session_recv_monotonic_ms = 0
+
+    @staticmethod
+    def _epoch_ms() -> int:
+        return time.time_ns() // 1_000_000
+
+    @staticmethod
+    def _monotonic_ms() -> int:
+        return time.monotonic_ns() // 1_000_000
+
+    def _logical_ts_ms(self) -> int:
+        if self.logical_ts_strategy == "time_manager_ms":
+            return max(0, self._monotonic_ms() - PROCESS_START_MONOTONIC_MS)
+        if self.logical_ts_strategy == "server_time_ms":
+            if self._last_server_time_ms and self._login_monotonic_ms:
+                delta = max(0, self._monotonic_ms() - self._login_monotonic_ms)
+                return self._last_server_time_ms + delta
+            return self._epoch_ms()
+        if self.logical_ts_strategy == "server_zone":
+            if self._login_response is not None:
+                return max(0, int(self._login_response.server_zone or 0))
+            return 0
+        return 0
+
+    def _rsa_decrypt_session_key(self, encrypted_key: bytes) -> bytes:
+        if self._client_private_key is None:
+            raise RuntimeError("客户端 RSA 私钥未初始化")
+
+        paddings = [
+            ("PKCS1v15", padding.PKCS1v15()),
+            (
+                "OAEP-SHA1",
+                padding.OAEP(
+                    mgf=padding.MGF1(algorithm=hashes.SHA1()),
+                    algorithm=hashes.SHA1(),
+                    label=None,
+                ),
+            ),
+            (
+                "OAEP-SHA256",
+                padding.OAEP(
+                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                    algorithm=hashes.SHA256(),
+                    label=None,
+                ),
+            ),
+        ]
+
+        last_error: Optional[str] = None
+        for padding_name, rsa_padding in paddings:
+            try:
+                plain = self._client_private_key.decrypt(encrypted_key, rsa_padding)
+            except Exception as exc:
+                last_error = f"{padding_name}: {exc}"
+                continue
+
+            if len(plain) == XXE1.allowed_key_length:
+                logger.info(
+                    "[TCP] 会话密钥已解开：padding=%s, key_len=%s",
+                    padding_name,
+                    len(plain),
+                )
+                return plain
+
+            last_error = (
+                f"{padding_name}: decrypted_len={len(plain)} "
+                f"(expected {XXE1.allowed_key_length})"
+            )
+
+        raise RuntimeError(f"无法解开登录回包中的会话密钥：{last_error or 'unknown error'}")
+
+    def _init_session_from_login(self, login_response: LoginResponse) -> None:
+        if not login_response.session_key_encrypted:
+            raise RuntimeError("登录响应缺少会话密钥密文 (MSG_B1.F3)")
+        if len(login_response.session_nonce) != XXE1.allowed_nonce_length:
+            raise RuntimeError(
+                f"登录响应 nonce 长度异常：{len(login_response.session_nonce)} "
+                f"(expected {XXE1.allowed_nonce_length})"
+            )
+
+        session_key = self._rsa_decrypt_session_key(login_response.session_key_encrypted)
+        self._session_key = session_key
+        self._session_nonce = bytes(login_response.session_nonce)
+        self._session_encryptor = XXE1(
+            self._session_key,
+            self._session_nonce,
+            counter=self.session_encrypt_counter,
+        )
+        self._session_decryptor = XXE1(
+            self._session_key,
+            self._session_nonce,
+            counter=self.session_decrypt_counter,
+        )
+        self._login_response = login_response
+        self._login_monotonic_ms = self._monotonic_ms()
+        self._last_server_time_ms = int(login_response.server_time or 0)
+        logger.info(
+            "[TCP] 已启用会话加密：key_len=%s, nonce_len=%s, send_counter=%s, recv_counter=%s",
+            len(self._session_key),
+            len(self._session_nonce),
+            self.session_encrypt_counter,
+            self.session_decrypt_counter,
+        )
 
     async def connect(self, host: str, port: int) -> bool:
         try:
@@ -816,6 +1068,8 @@ class TCPClient:
     def disconnect(self) -> None:
         if self.writer:
             self.writer.close()
+        self.reader = None
+        self.writer = None
         logger.info("[TCP] 已断开连接")
 
     async def _read_exact(self, n: int) -> bytes:
@@ -834,6 +1088,317 @@ class TCPClient:
         logger.info("[SRSA] 初始化 SRSA 加密桥接...")
         self.srsa_bridge = SRSABridge(self.dll_dir)
         logger.info(f"[SRSA] SRSA 版本：{self.srsa_bridge.version}")
+
+    def _require_session_crypto(self) -> tuple[XXE1, XXE1]:
+        if self._session_encryptor is None or self._session_decryptor is None:
+            raise RuntimeError("会话加密尚未初始化")
+        return self._session_encryptor, self._session_decryptor
+
+    @staticmethod
+    def _summarize_proto_fields(data: bytes, *, max_fields: int = 8) -> str:
+        summary: list[str] = []
+        try:
+            for index, (field_no, wire, value) in enumerate(iter_fields(data)):
+                if index >= max_fields:
+                    summary.append("...")
+                    break
+                if wire == 0 and isinstance(value, int):
+                    summary.append(f"{field_no}=u{value}")
+                elif wire == 2 and isinstance(value, bytes):
+                    summary.append(f"{field_no}=bytes[{len(value)}]")
+                elif wire == 5 and isinstance(value, bytes):
+                    summary.append(f"{field_no}=fixed32[{len(value)}]")
+                elif wire == 1 and isinstance(value, bytes):
+                    summary.append(f"{field_no}=fixed64[{len(value)}]")
+                else:
+                    summary.append(f"{field_no}=wire{wire}")
+        except Exception as exc:
+            summary.append(f"parse_error={exc}")
+        return ", ".join(summary) if summary else "<empty>"
+
+    async def send_message(self, msgid: int, body: bytes) -> dict[str, int]:
+        encryptor, _ = self._require_session_crypto()
+        up_seqid = self._seq_id
+        checksum = zlib.crc32(body) & 0xFFFFFFFF
+        cs_head = _build_cs_head(
+            msgid=msgid,
+            up_seqid=up_seqid,
+            down_seqid=self._down_seqid,
+            checksum=checksum,
+            force_emit_checksum=True,
+        )
+        self._seq_id += 1
+
+        header = bytearray()
+        header.append(len(cs_head))
+        header.extend(struct.pack("<H", len(body)))
+        encrypted_payload = encryptor.process(cs_head + body)
+
+        async with self._write_lock:
+            await self._write(bytes(header))
+            await self._write(encrypted_payload)
+
+        return {
+            "up_seqid": up_seqid,
+            "head_len": len(cs_head),
+            "body_len": len(body),
+            "checksum": checksum,
+        }
+
+    async def send_ping(self, *, client_ts: Optional[int] = None, logical_ts: Optional[int] = None) -> None:
+        client_ts = self._epoch_ms() if client_ts is None else int(client_ts)
+        logical_ts = self._logical_ts_ms() if logical_ts is None else int(logical_ts)
+        body = build_cs_ping_body(client_ts=client_ts, logical_ts=logical_ts)
+        send_meta = await self.send_message(
+            MSG_ID_CS_PING,
+            body,
+        )
+        logger.info(
+            "[TCP] 已发送 CsPing: up_seqid=%s, down_seqid=%s, head_len=%s, body_len=%s, checksum=0x%08x, clientTs=%s, logicalTs=%s, logicalTsStrategy=%s",
+            send_meta["up_seqid"],
+            self._down_seqid,
+            send_meta["head_len"],
+            send_meta["body_len"],
+            send_meta["checksum"],
+            client_ts,
+            logical_ts,
+            self.logical_ts_strategy,
+        )
+
+    async def send_sync_logical_ts(self, logical_ts: Optional[int] = None) -> None:
+        logical_ts = self._logical_ts_ms() if logical_ts is None else int(logical_ts)
+        body = build_cs_sync_logical_ts_body(logical_ts)
+        send_meta = await self.send_message(
+            MSG_ID_CS_SYNC_LOGICAL_TS,
+            body,
+        )
+        logger.info(
+            "[TCP] 已发送 CsSyncLogicalTs: up_seqid=%s, down_seqid=%s, head_len=%s, body_len=%s, checksum=0x%08x, logicalTs=%s, logicalTsStrategy=%s",
+            send_meta["up_seqid"],
+            self._down_seqid,
+            send_meta["head_len"],
+            send_meta["body_len"],
+            send_meta["checksum"],
+            logical_ts,
+            self.logical_ts_strategy,
+        )
+
+    async def send_flush_sync(self, client_ts: Optional[int] = None) -> None:
+        client_ts = self._epoch_ms() if client_ts is None else int(client_ts)
+        body = build_cs_flush_sync_body(client_ts)
+        send_meta = await self.send_message(
+            MSG_ID_CS_FLUSH_SYNC,
+            body,
+        )
+        logger.info(
+            "[TCP] 已发送 CsFlushSync: up_seqid=%s, down_seqid=%s, head_len=%s, body_len=%s, checksum=0x%08x, clientTs=%s",
+            send_meta["up_seqid"],
+            self._down_seqid,
+            send_meta["head_len"],
+            send_meta["body_len"],
+            send_meta["checksum"],
+            client_ts,
+        )
+
+    def _handle_session_payload(self, head_info: dict[str, Any], body: bytes, *, head_len: int) -> None:
+        msgid = int(head_info.get("msgid", 0) or 0)
+        down_seqid = int(head_info.get("down_seqid", 0) or 0)
+        if down_seqid:
+            self._down_seqid = max(self._down_seqid, down_seqid)
+
+        should_trace = (
+            self._session_recv_count <= DEFAULT_SESSION_TRACE_MESSAGE_LIMIT
+            or msgid in {MSG_ID_SC_PING, MSG_ID_SC_ERROR, MSG_ID_SC_FLUSH_SYNC}
+        )
+        if should_trace:
+            logger.info(
+                "[TCP] 收到服务端消息: idx=%s, msgid=%s, down_seqid=%s, head_len=%s, body_len=%s, checksum=%s, fields=%s",
+                self._session_recv_count,
+                msgid,
+                self._down_seqid,
+                head_len,
+                len(body),
+                head_info.get("checksum"),
+                self._summarize_proto_fields(body),
+            )
+
+        if msgid == MSG_ID_SC_PING:
+            sc_ping = _parse_sc_ping(body)
+            client_ts = int(sc_ping.get("client_ts", 0) or 0)
+            server_ts = int(sc_ping.get("server_ts", 0) or 0)
+            if server_ts:
+                self._last_server_time_ms = server_ts
+                self._login_monotonic_ms = self._monotonic_ms()
+            latency_ms = self._epoch_ms() - client_ts if client_ts else 0
+            logger.info(
+                "[TCP] 收到 ScPing: down_seqid=%s, clientTs=%s, serverTs=%s, latency≈%sms",
+                self._down_seqid,
+                client_ts,
+                server_ts,
+                max(0, latency_ms),
+            )
+            return
+
+        if msgid == MSG_ID_SC_FLUSH_SYNC:
+            sc_flush_sync = _parse_sc_flush_sync(body)
+            client_ts = int(sc_flush_sync.get("client_ts", 0) or 0)
+            server_ts = int(sc_flush_sync.get("server_ts", 0) or 0)
+            logger.info(
+                "[TCP] 收到 ScFlushSync: down_seqid=%s, clientTs=%s, serverTs=%s",
+                self._down_seqid,
+                client_ts,
+                server_ts,
+            )
+            return
+
+        if msgid == MSG_ID_SC_ERROR:
+            error_info = _parse_error_response(body)
+            err_code = int(error_info.get("error_code", -1))
+            explanation = ERROR_EXPLANATIONS.get(err_code, "")
+            logger.error(
+                "[TCP] 收到服务端错误: code=%s, name=%s, explanation=%s, details=%s",
+                err_code,
+                ERROR_CODES.get(err_code, f"Unknown({err_code})"),
+                explanation or "<none>",
+                error_info.get("details", ""),
+            )
+            return
+
+        logger.debug(
+            "[TCP] 收到服务端消息: msgid=%s, down_seqid=%s, body_len=%s",
+            msgid,
+            self._down_seqid,
+            len(body),
+        )
+
+    async def _session_receive_loop(self) -> None:
+        _, decryptor = self._require_session_crypto()
+        try:
+            while not self._stop_event.is_set():
+                header = await self._read_exact(3)
+                head_len = header[0]
+                body_len = struct.unpack("<H", header[1:3])[0]
+                encrypted_payload = await self._read_exact(head_len + body_len)
+                plain_payload = decryptor.process(encrypted_payload)
+
+                if len(plain_payload) != head_len + body_len:
+                    raise RuntimeError("会话解密后长度异常")
+
+                head_bytes = plain_payload[:head_len]
+                body = plain_payload[head_len:]
+                self._session_recv_count += 1
+                self._last_session_recv_monotonic_ms = self._monotonic_ms()
+                head_info = _parse_cs_head(head_bytes)
+                self._handle_session_payload(head_info, body, head_len=head_len)
+        except asyncio.CancelledError:
+            raise
+        except asyncio.IncompleteReadError:
+            if not self._stop_event.is_set():
+                logger.warning("[TCP] 服务端关闭了连接")
+        except Exception as exc:
+            if not self._stop_event.is_set():
+                logger.exception("[TCP] 会话接收循环异常: %s", exc)
+        finally:
+            self._stop_event.set()
+            self._closed_event.set()
+
+    async def _heartbeat_loop(self) -> None:
+        try:
+            if self.first_ping_delay_ms > 0:
+                try:
+                    await asyncio.wait_for(
+                        self._stop_event.wait(),
+                        timeout=self.first_ping_delay_ms / 1000,
+                    )
+                except asyncio.TimeoutError:
+                    pass
+
+            deadline = self._monotonic_ms() + 3000
+            while not self._stop_event.is_set() and self._session_recv_count == 0:
+                if self._monotonic_ms() >= deadline:
+                    break
+                await asyncio.sleep(0.01)
+
+            while not self._stop_event.is_set() and self.first_ping_idle_window_ms > 0:
+                if self._session_recv_count == 0:
+                    break
+                idle_ms = self._monotonic_ms() - self._last_session_recv_monotonic_ms
+                if idle_ms >= self.first_ping_idle_window_ms:
+                    break
+                await asyncio.sleep(0.01)
+
+            while not self._stop_event.is_set():
+                await self.send_ping()
+                try:
+                    await asyncio.wait_for(
+                        self._stop_event.wait(),
+                        timeout=self.heartbeat_interval_ms / 1000,
+                    )
+                except asyncio.TimeoutError:
+                    continue
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            if not self._stop_event.is_set():
+                logger.exception("[TCP] 心跳循环异常: %s", exc)
+                self._stop_event.set()
+                self._closed_event.set()
+
+    async def start_session(self) -> None:
+        self._require_session_crypto()
+        if self._session_started:
+            return
+
+        self._stop_event = asyncio.Event()
+        self._closed_event = asyncio.Event()
+        self._session_recv_count = 0
+        self._last_session_recv_monotonic_ms = self._monotonic_ms()
+        self._receive_task = asyncio.create_task(self._session_receive_loop())
+        self._ping_task = asyncio.create_task(self._heartbeat_loop())
+        self._session_started = True
+
+    async def wait_forever(self) -> None:
+        if not self._session_started:
+            raise RuntimeError("长连接尚未启动")
+
+        await self._closed_event.wait()
+        if self._receive_task and self._receive_task.done() and not self._receive_task.cancelled():
+            exc = self._receive_task.exception()
+            if exc is not None:
+                raise exc
+
+    async def close(self) -> None:
+        self._stop_event.set()
+        tasks = [task for task in (self._ping_task, self._receive_task) if task is not None]
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
+
+        self._ping_task = None
+        self._receive_task = None
+        self._session_started = False
+        self._closed_event.set()
+
+        if self.writer is not None:
+            self.writer.close()
+            try:
+                await self.writer.wait_closed()
+            except Exception:
+                pass
+
+        self.reader = None
+        self.writer = None
+        self._session_encryptor = None
+        self._session_decryptor = None
+        self._session_key = b""
+        self._session_nonce = b""
+        self._login_response = None
 
     async def login(
         self,
@@ -867,7 +1432,11 @@ class TCPClient:
         if not self.srsa_bridge:
             self.init_srsa()
 
-        public_key, _private_key = generate_rsa_keypair()
+        public_key, private_key_pem = generate_rsa_keypair()
+        self._client_private_key = serialization.load_pem_private_key(
+            private_key_pem.encode("utf-8"),
+            password=None,
+        )
         ctx["client_public_key"] = public_key
         ctx["client_public_key_bytes"] = public_key.encode("utf-8")
         ctx["client_public_key_format"] = "pem"
@@ -895,7 +1464,6 @@ class TCPClient:
                 raise
 
         msgid = 13
-        seq_id = self._seq_id
         self._seq_id += 1
 
         checksum = zlib.crc32(cs_body_plain) & 0xFFFFFFFF
@@ -945,6 +1513,11 @@ class TCPClient:
         }
 
         if len(resp) >= 3 + head_len + body_len:
+            resp_head = _parse_cs_head(resp[3:3 + head_len])
+            parsed["sc_head"] = resp_head
+            if "down_seqid" in resp_head:
+                self._down_seqid = int(resp_head["down_seqid"])
+
             resp_body = resp[3 + head_len:3 + head_len + body_len]
 
             if _is_srsa_encrypted(resp_body) and self.srsa_bridge is not None:
@@ -960,23 +1533,42 @@ class TCPClient:
                 err_code = int(error_info["error_code"])
                 parsed["error_code"] = err_code
                 parsed["error_name"] = ERROR_CODES.get(err_code, f"Unknown({err_code})")
+                parsed["error_explanation"] = ERROR_EXPLANATIONS.get(err_code, "")
                 parsed["error_details"] = error_info.get("details", "")
-                logger.error(f"[TCP] 登录失败：{parsed['error_name']}({err_code}), details={parsed['error_details']}")
+                logger.error(
+                    "[TCP] 登录失败：%s(%s), explanation=%s, details=%s",
+                    parsed["error_name"],
+                    err_code,
+                    parsed["error_explanation"] or "<none>",
+                    parsed["error_details"],
+                )
                 raise RuntimeError(f"登录失败：{parsed['error_name']}({err_code})")
             else:
                 sc_login = _parse_sc_login(resp_body)
                 if sc_login:
                     parsed["sc_login"] = sc_login
                     logger.info(f"[TCP] 登录成功：uid={sc_login.get('uid')}")
-                    return LoginResponse(
+                    login_response = LoginResponse(
                         uid=sc_login.get("uid", ""),
                         login_token=sc_login.get("login_token", ""),
-                        server_public_key=sc_login.get("server_public_key", ""),
-                        server_encryp_nonce=sc_login.get("server_encryp_nonce", ""),
+                        session_key_encrypted=sc_login.get("session_key_encrypted", b""),
+                        session_nonce=sc_login.get("session_nonce", b""),
                         server_time=sc_login.get("server_time", 0),
+                        server_zone=sc_login.get("server_zone", 0),
+                        server_area=sc_login.get("server_area", ""),
+                        server_area_type=sc_login.get("server_area_type", 0),
+                        is_client_reconnect=sc_login.get("is_client_reconnect", False),
                         is_first_login=sc_login.get("is_first_login", False),
                         is_reconnect=sc_login.get("is_reconnect", False),
                     )
+                    self._init_session_from_login(login_response)
+                    logger.info(
+                        "[TCP] 登录回包字段: session_key_encrypted=%s bytes, session_nonce=%s bytes, down_seqid=%s",
+                        len(login_response.session_key_encrypted),
+                        len(login_response.session_nonce),
+                        self._down_seqid,
+                    )
+                    return login_response
 
         self.login_parsed = parsed
         raise RuntimeError("未识别的登录响应")

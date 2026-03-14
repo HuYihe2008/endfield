@@ -9,7 +9,16 @@ from config.get_config import EndfieldConfigFetcher
 from login.passport_login import PassportLogin, PassportLoginResult
 from login.u8_login import U8Login, U8LoginResult
 from tcp.srsa_bridge import SRSABridge
-from tcp.tcp import TCPClient
+from tcp.tcp import (
+    DEFAULT_FIRST_HEARTBEAT_DELAY_MS,
+    DEFAULT_FIRST_HEARTBEAT_IDLE_WINDOW_MS,
+    DEFAULT_HEARTBEAT_INTERVAL_MS,
+    DEFAULT_LOGICAL_TS_STRATEGY,
+    DEFAULT_SESSION_DECRYPT_COUNTER,
+    DEFAULT_SESSION_ENCRYPT_COUNTER,
+    LOGICAL_TS_STRATEGIES,
+    TCPClient,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -19,11 +28,19 @@ logger = logging.getLogger(__name__)
 
 
 class EndfieldClient:
-    def __init__(self, dll_dir: Path, config_dir: Optional[Path] = None, is_oversea: bool = False, qrcode_dir: Optional[Path] = None):
+    def __init__(
+        self,
+        dll_dir: Path,
+        config_dir: Optional[Path] = None,
+        is_oversea: bool = False,
+        qrcode_dir: Optional[Path] = None,
+        tcp_options: Optional[dict[str, Any]] = None,
+    ):
         self.dll_dir = dll_dir
         self.config_dir = config_dir
         self.is_oversea = is_oversea
         self.qrcode_dir = qrcode_dir
+        self.tcp_options = dict(tcp_options or {})
 
         self._config: Optional[dict[str, Any]] = None
         self._passport_result: Optional[PassportLoginResult] = None
@@ -119,7 +136,7 @@ class EndfieldClient:
     async def tcp_login(self, host: str, port: int, uid: str, grant_code: str) -> Any:
         """TCP 连接并登录"""
         logger.info(f"[TCP] 连接到 {host}:{port}...")
-        self._tcp_client = TCPClient(self.dll_dir)
+        self._tcp_client = TCPClient(self.dll_dir, **self.tcp_options)
 
         await self._tcp_client.connect(host, port)
         logger.info("[TCP] 连接成功，开始登录...")
@@ -146,8 +163,20 @@ class EndfieldClient:
 
         logger.info(f"[TCP] 登录成功！server_time: {login_response.server_time}")
         logger.info(f"[TCP] uid: {login_response.uid}")
+        await self._tcp_client.start_session()
+        logger.info("[TCP] 长连接保持已启动")
 
         return login_response
+
+    async def wait_forever(self) -> None:
+        if not self._tcp_client:
+            raise RuntimeError("TCP 会话尚未建立")
+        await self._tcp_client.wait_forever()
+
+    async def close(self) -> None:
+        if self._tcp_client:
+            await self._tcp_client.close()
+            self._tcp_client = None
 
 
 async def main():
@@ -158,6 +187,12 @@ async def main():
     parser.add_argument("--oversea", action="store_true", help="使用海外服务器")
     parser.add_argument("--server-id", type=str, help="指定服务器 ID")
     parser.add_argument("--qrcode-dir", type=Path, help="二维码图片保存目录 (默认：./qrcode)")
+    parser.add_argument("--tcp-send-counter", type=int, default=DEFAULT_SESSION_ENCRYPT_COUNTER, help="会话上行 XXE1 初始 counter")
+    parser.add_argument("--tcp-recv-counter", type=int, default=DEFAULT_SESSION_DECRYPT_COUNTER, help="会话下行 XXE1 初始 counter")
+    parser.add_argument("--tcp-ping-interval-ms", type=int, default=DEFAULT_HEARTBEAT_INTERVAL_MS, help="CsPing 发送间隔")
+    parser.add_argument("--tcp-first-ping-delay-ms", type=int, default=DEFAULT_FIRST_HEARTBEAT_DELAY_MS, help="登录后首个心跳延迟")
+    parser.add_argument("--tcp-first-ping-idle-window-ms", type=int, default=DEFAULT_FIRST_HEARTBEAT_IDLE_WINDOW_MS, help="登录后等待服务端静默多久再发首个心跳")
+    parser.add_argument("--tcp-logical-ts-strategy", type=str, choices=sorted(LOGICAL_TS_STRATEGIES), default=DEFAULT_LOGICAL_TS_STRATEGY, help="CsPing/CsSyncLogicalTs 的 logicalTs 取值策略")
 
     args = parser.parse_args()
 
@@ -165,41 +200,61 @@ async def main():
     if args.qrcode_dir is None:
         args.qrcode_dir = Path(__file__).parent / "qrcode"
 
+    tcp_options = {
+        "session_encrypt_counter": args.tcp_send_counter,
+        "session_decrypt_counter": args.tcp_recv_counter,
+        "heartbeat_interval_ms": args.tcp_ping_interval_ms,
+        "first_ping_delay_ms": args.tcp_first_ping_delay_ms,
+        "first_ping_idle_window_ms": args.tcp_first_ping_idle_window_ms,
+        "logical_ts_strategy": args.tcp_logical_ts_strategy,
+    }
+
     client = EndfieldClient(
         dll_dir=args.dll_dir,
         config_dir=args.config_dir,
         is_oversea=args.oversea,
-        qrcode_dir=args.qrcode_dir
+        qrcode_dir=args.qrcode_dir,
+        tcp_options=tcp_options,
     )
 
-    if not args.skip_config:
-        await client.fetch_config()
-    else:
-        logger.info("[Config] 跳过配置获取")
+    try:
+        if not args.skip_config:
+            await client.fetch_config()
+        else:
+            logger.info("[Config] 跳过配置获取")
 
-    await client.passport_login()
-    await client.u8_login(client._passport_result.channel_token)
+        await client.passport_login()
+        await client.u8_login(client._passport_result.channel_token)
 
-    server = client.get_server(args.server_id)
-    logger.info(f"[Server] 选择服务器：{server.get('serverName')}")
+        server = client.get_server(args.server_id)
+        logger.info(f"[Server] 选择服务器：{server.get('serverName')}")
 
-    host_port = json.loads(server.get("serverDomain", "[]"))
-    if host_port:
+        host_port = json.loads(server.get("serverDomain", "[]"))
+        if not host_port:
+            raise RuntimeError("未获取到服务器地址")
+
         host = host_port[0].get("host")
         port = host_port[0].get("port")
         logger.info(f"[TCP] 服务器地址：{host}:{port}")
 
-    client.init_srsa()
+        client.init_srsa()
 
-    login_response = await client.tcp_login(
-        host=host,
-        port=port,
-        uid=client._u8_result.uid,
-        grant_code=client._u8_result.grant_code
-    )
+        login_response = await client.tcp_login(
+            host=host,
+            port=port,
+            uid=client._u8_result.uid,
+            grant_code=client._u8_result.grant_code
+        )
 
-    logger.info("[Client] 登录流程完成!")
+        logger.info(f"[Client] 登录流程完成，uid={login_response.uid}")
+        logger.info("[Client] 长连接保持中，按 Ctrl+C 退出")
+        await client.wait_forever()
+    finally:
+        await client.close()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass

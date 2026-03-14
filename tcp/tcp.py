@@ -23,36 +23,11 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
+from tcp.proto_errors import ERROR_CODES, ERROR_EXPLANATIONS
 from tcp.srsa_bridge import SRSABridge, SRSA_MAGIC
 from tcp.xxe1 import XXE1
 
 logger = logging.getLogger(__name__)
-
-ERROR_CODES = {
-    -1: "ErrUnknown",
-    0: "ErrSuccess",
-    32: "ErrCommonServerVersionTooLow",
-    33: "ErrCommonClientVersionNotEqual",
-    34: "ErrCommonClientResVersionNotEqual",
-    37: "ErrLoginMultipleSession",
-    40: "ErrLoginTokenInvalid",
-    41: "ErrLoginMsgFormatInvalid",
-    42: "ErrLoginProcessLogin",
-    43: "ErrLoginSendMsg",
-    44: "ErrCommonPlatformInvalid",
-    52: "ErrLoginQueueTimeout",
-    53: "ErrLoginQueueFull",
-    54: "ErrLoginButTransferringGs",
-    62: "ErrLoginLocUnmatch",
-    65: "ErrLoginReconnctIncrFailed",
-    76: "ErrResourceDataVersionCheckFailed",
-    77: "ErrBranchVersionCheckFailed",
-    78: "ErrChannelIdCheckFailed",
-}
-
-ERROR_EXPLANATIONS = {
-    37: "检测到同一账号/UID 已有另一条活跃会话。",
-}
 
 MSG_ID_SC_LOGIN = 1
 MSG_ID_SC_ERROR = 3

@@ -22,6 +22,12 @@
 pip install -r requirements.txt
 ```
 
+如果要使用实验性 WebUI，还需要安装新增的 Web 依赖（已写入 `requirements.txt`）：
+
+```bash
+pip install -r requirements.txt
+```
+
 ## 运行方式
 
 最常用命令：
@@ -36,6 +42,19 @@ python main.py --dll-dir "C:\path\to\Data"
 python main.py --dll-dir "C:\Users\hyh28\Documents\Hg\Data"
 ```
 
+默认行为：
+
+- 登录成功后进入全屏交互式 TUI
+- 长连接和心跳会继续保持
+- 状态、结果、日志、命令输入会分区显示
+- 默认会过滤掉高频心跳日志，避免刷屏影响操作
+
+如果你想沿用旧的纯日志模式，不进入交互界面：
+
+```bash
+python main.py --dll-dir "C:\Users\hyh28\Documents\Hg\Data" --no-cli
+```
+
 可选参数：
 
 - `--config-dir`：配置缓存目录，默认 `./Data/tmp`
@@ -43,6 +62,95 @@ python main.py --dll-dir "C:\Users\hyh28\Documents\Hg\Data"
 - `--oversea`：使用海外环境
 - `--server-id`：指定服务器 ID
 - `--qrcode-dir`：二维码输出目录，默认 `./qrcode`
+
+## 实验性 CLI Plugin
+
+`main.py` 现在默认会进入一个全屏交互式 TUI，启动后可直接输入命令执行 plugin。
+
+当前已接入的命令行 plugin：
+
+- `blueprint-query`
+
+交互模式下可用命令：
+
+- `help`
+- `status`
+- `plugins`
+- `blueprint-query <share_code> [--timeout 秒] [--output summary|json|both]`
+- `clear`
+- `clear-logs`
+- `toggle-ping-log`
+- `exit` / `quit`
+
+启动后直接查蓝图的典型流程：
+
+```text
+cmd> blueprint-query ABCD-1234
+```
+
+TUI 布局大致分成四块：
+
+- 左侧：当前登录/会话状态
+- 右上：命令执行结果
+- 右下：日志窗口（默认过滤心跳）
+- 底部：命令输入框
+
+另外补了两个便于长期挂着用的命令：
+
+- `clear-logs`：清空右下日志面板
+- `toggle-ping-log`：切换是否过滤高频心跳日志
+
+蓝图查询示例：
+
+```bash
+python main.py --dll-dir "C:\Users\hyh28\Documents\Hg\Data" --plugin blueprint-query --share-code "你的分享码"
+```
+
+如果希望查询完成后仍然继续保活长连接：
+
+```bash
+python main.py --dll-dir "C:\Users\hyh28\Documents\Hg\Data" --plugin blueprint-query --share-code "你的分享码" --wait-after-plugin
+```
+
+和 plugin 相关的参数：
+
+- `--plugin blueprint-query`：指定执行蓝图查询 plugin
+- `--share-code`：蓝图分享码
+- `--plugin-timeout`：plugin 请求超时，默认 `10`
+- `--plugin-output`：输出格式，可选 `summary` / `json` / `both`
+- `--wait-after-plugin`：plugin 完成后继续保持 TCP 长连接
+- `--no-cli`：不进入交互式 TUI，回退到旧的纯日志模式
+
+## 实验性 WebUI
+
+新增了一个实验性插件系统，并先接入了第一个 plugin：蓝图查询。
+
+当前蓝图查询对齐自 `Il2CppInspector/types.cs` 中的这些协议定义：
+
+- `CsFactoryQuerySharedBluePrint = 262`
+- `ScFactoryQuerySharedBluePrint = 249`
+- `CS_FACTORY_QUERY_SHARED_BLUE_PRINT`
+- `SC_FACTORY_QUERY_SHARED_BLUE_PRINT`
+- `CSD_FACTORY_BLUE_PRINT_DATA`
+
+启动方式：
+
+```bash
+python web_app.py --dll-dir "C:\Users\hyh28\Documents\Hg\Data"
+```
+
+默认页面地址：
+
+```text
+http://127.0.0.1:18080
+```
+
+WebUI 当前提供：
+
+- 会话登录与长连接保活
+- 二维码图片展示
+- 通过 share code 发送蓝图查询请求
+- 展示蓝图基础信息、节点数、组件数和完整解析结果 JSON
 
 ## 目录结构
 

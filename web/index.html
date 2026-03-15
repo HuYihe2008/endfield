@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Endfield Experimental WebUI</title>
+  <style>
+    :root {
+      --bg: #f3efe7;
+      --panel: rgba(255, 252, 245, 0.92);
+      --ink: #1f2933;
+      --sub: #536471;
+      --line: rgba(31, 41, 51, 0.12);
+      --accent: #cf5f2a;
+      --accent-2: #0d9488;
+      --danger: #b42318;
+      --shadow: 0 24px 60px rgba(49, 35, 22, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(207, 95, 42, 0.18), transparent 36%),
+        radial-gradient(circle at bottom right, rgba(13, 148, 136, 0.18), transparent 30%),
+        linear-gradient(135deg, #f9f5ef 0%, #efe8dc 100%);
+      min-height: 100vh;
+    }
+
+    .page {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 32px 20px 48px;
+    }
+
+    .hero {
+      display: grid;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .eyebrow {
+      color: var(--accent);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(28px, 5vw, 52px);
+      line-height: 1.02;
+    }
+
+    .hero p {
+      margin: 0;
+      color: var(--sub);
+      max-width: 760px;
+      font-size: 15px;
+      line-height: 1.7;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 20px;
+    }
+
+    .card {
+      background: var(--panel);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      box-shadow: var(--shadow);
+      padding: 22px;
+    }
+
+    .card h2 {
+      margin: 0 0 16px;
+      font-size: 22px;
+    }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .meta-item {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px 14px;
+      background: rgba(255, 255, 255, 0.6);
+    }
+
+    .meta-item .label {
+      color: var(--sub);
+      font-size: 12px;
+      margin-bottom: 6px;
+    }
+
+    .meta-item .value {
+      font-size: 14px;
+      word-break: break-all;
+    }
+
+    form {
+      display: grid;
+      gap: 12px;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+    }
+
+    .field label {
+      font-size: 13px;
+      color: var(--sub);
+    }
+
+    input[type="text"],
+    input[type="number"] {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px 14px;
+      font: inherit;
+      background: rgba(255, 255, 255, 0.9);
+    }
+
+    .checkbox-row {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      color: var(--sub);
+      font-size: 14px;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      border: 0;
+      border-radius: 999px;
+      padding: 12px 18px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.16s ease, opacity 0.16s ease;
+    }
+
+    button:hover { transform: translateY(-1px); }
+    button:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+
+    .primary {
+      background: linear-gradient(135deg, #dd6b34, #be4f1a);
+      color: #fff;
+    }
+
+    .secondary {
+      background: rgba(31, 41, 51, 0.08);
+      color: var(--ink);
+    }
+
+    .success {
+      background: linear-gradient(135deg, #0f9b8e, #0b7a70);
+      color: #fff;
+    }
+
+    .status-banner {
+      margin-top: 14px;
+      border-radius: 14px;
+      padding: 12px 14px;
+      background: rgba(207, 95, 42, 0.08);
+      color: var(--ink);
+      border: 1px solid rgba(207, 95, 42, 0.18);
+    }
+
+    .status-banner.error {
+      background: rgba(180, 35, 24, 0.08);
+      border-color: rgba(180, 35, 24, 0.18);
+      color: var(--danger);
+    }
+
+    .qrcode-panel {
+      display: grid;
+      gap: 14px;
+    }
+
+    .qrcode-box {
+      min-height: 280px;
+      display: grid;
+      place-items: center;
+      border-radius: 18px;
+      border: 1px dashed rgba(31, 41, 51, 0.18);
+      background:
+        linear-gradient(145deg, rgba(255,255,255,0.8), rgba(247,241,232,0.9));
+      overflow: hidden;
+    }
+
+    .qrcode-box img {
+      max-width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .hint {
+      color: var(--sub);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .result-summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .result-pre {
+      margin: 16px 0 0;
+      padding: 16px;
+      border-radius: 16px;
+      background: #1f2933;
+      color: #ecf2f8;
+      overflow: auto;
+      max-height: 420px;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    @media (max-width: 920px) {
+      .grid { grid-template-columns: 1fr; }
+      .meta-grid, .result-summary { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <div class="eyebrow">Experimental Plugin Console</div>
+      <h1>登录保活 + 蓝图查询</h1>
+      <p>这个页面直接调用当前实验性后端 API。先建立登录会话并保持心跳，再通过 share code 发送 `CsFactoryQuerySharedBluePrint(262)` 查询蓝图详情。</p>
+    </section>
+
+    <section class="grid">
+      <div class="card">
+        <h2>会话控制</h2>
+        <form id="login-form">
+          <div class="field">
+            <label for="server-id">服务器 ID（可选）</label>
+            <input id="server-id" type="text" placeholder="留空则使用默认服务器">
+          </div>
+          <div class="checkbox-row">
+            <label><input id="skip-config" type="checkbox"> 跳过配置拉取</label>
+            <label><input id="oversea" type="checkbox"> 海外环境</label>
+          </div>
+          <div class="actions">
+            <button class="primary" type="submit">开始登录</button>
+            <button class="secondary" type="button" id="close-session">关闭会话</button>
+          </div>
+        </form>
+        <div id="status-banner" class="status-banner">尚未建立会话</div>
+        <div class="meta-grid" id="session-meta">
+          <div class="meta-item"><div class="label">阶段</div><div class="value" id="meta-stage">idle</div></div>
+          <div class="meta-item"><div class="label">可查询</div><div class="value" id="meta-ready">false</div></div>
+          <div class="meta-item"><div class="label">UID</div><div class="value" id="meta-uid">-</div></div>
+          <div class="meta-item"><div class="label">服务器</div><div class="value" id="meta-server">-</div></div>
+          <div class="meta-item"><div class="label">TCP 地址</div><div class="value" id="meta-host-port">-</div></div>
+          <div class="meta-item"><div class="label">插件</div><div class="value" id="meta-plugins">-</div></div>
+        </div>
+      </div>
+
+      <div class="card qrcode-panel">
+        <h2>扫码登录</h2>
+        <div class="qrcode-box" id="qrcode-box">
+          <div class="hint">发起登录后，这里会显示二维码图片。</div>
+        </div>
+        <div class="hint" id="scan-url">scanUrl: -</div>
+      </div>
+    </section>
+
+    <section class="card" style="margin-top: 20px;">
+      <h2>蓝图查询 Plugin</h2>
+      <form id="blueprint-form">
+        <div class="field">
+          <label for="share-code">share code</label>
+          <input id="share-code" type="text" placeholder="输入蓝图分享码">
+        </div>
+        <div class="field">
+          <label for="query-timeout">请求超时（秒）</label>
+          <input id="query-timeout" type="number" min="1" max="60" value="10">
+        </div>
+        <div class="actions">
+          <button class="success" type="submit" id="query-button">查询蓝图</button>
+        </div>
+      </form>
+      <div class="result-summary" id="result-summary">
+        <div class="meta-item"><div class="label">蓝图名称</div><div class="value" id="bp-name">-</div></div>
+        <div class="meta-item"><div class="label">节点数</div><div class="value" id="bp-node-count">-</div></div>
+        <div class="meta-item"><div class="label">组件数</div><div class="value" id="bp-com-count">-</div></div>
+      </div>
+      <pre class="result-pre" id="query-result">等待查询结果...</pre>
+    </section>
+  </div>
+
+  <script>
+    const els = {
+      statusBanner: document.getElementById("status-banner"),
+      metaStage: document.getElementById("meta-stage"),
+      metaReady: document.getElementById("meta-ready"),
+      metaUid: document.getElementById("meta-uid"),
+      metaServer: document.getElementById("meta-server"),
+      metaHostPort: document.getElementById("meta-host-port"),
+      metaPlugins: document.getElementById("meta-plugins"),
+      qrcodeBox: document.getElementById("qrcode-box"),
+      scanUrl: document.getElementById("scan-url"),
+      loginForm: document.getElementById("login-form"),
+      closeButton: document.getElementById("close-session"),
+      blueprintForm: document.getElementById("blueprint-form"),
+      queryButton: document.getElementById("query-button"),
+      queryResult: document.getElementById("query-result"),
+      bpName: document.getElementById("bp-name"),
+      bpNodeCount: document.getElementById("bp-node-count"),
+      bpComCount: document.getElementById("bp-com-count"),
+    };
+
+    let lastQrcodeUrl = "";
+
+    function renderState(state) {
+      els.statusBanner.textContent = state.error ? `${state.message}: ${state.error}` : state.message;
+      els.statusBanner.className = `status-banner${state.error ? " error" : ""}`;
+      els.metaStage.textContent = state.stage || "-";
+      els.metaReady.textContent = String(Boolean(state.ready));
+      els.metaUid.textContent = state.uid || "-";
+      els.metaServer.textContent = state.server_name ? `${state.server_name} (${state.server_id || "-"})` : "-";
+      els.metaHostPort.textContent = state.host ? `${state.host}:${state.port}` : "-";
+      els.metaPlugins.textContent = (state.available_plugins || []).map(item => item.name).join(", ") || "-";
+      els.scanUrl.textContent = `scanUrl: ${state.scan_url || "-"}`;
+      els.queryButton.disabled = !state.ready;
+
+      const qrcodeUrl = state.qrcode_image_url || "";
+      if (qrcodeUrl && qrcodeUrl !== lastQrcodeUrl) {
+        lastQrcodeUrl = qrcodeUrl;
+        els.qrcodeBox.innerHTML = `<img alt="二维码" src="${qrcodeUrl}?t=${Date.now()}">`;
+      } else if (!qrcodeUrl) {
+        lastQrcodeUrl = "";
+        els.qrcodeBox.innerHTML = '<div class="hint">发起登录后，这里会显示二维码图片。</div>';
+      }
+    }
+
+    async function fetchState() {
+      const res = await fetch("/api/session");
+      const data = await res.json();
+      renderState(data);
+      return data;
+    }
+
+    async function postJson(url, payload) {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload || {}),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || "请求失败");
+      }
+      return data;
+    }
+
+    els.loginForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        await postJson("/api/session/login", {
+          server_id: document.getElementById("server-id").value || null,
+          skip_config: document.getElementById("skip-config").checked,
+          oversea: document.getElementById("oversea").checked,
+        });
+        await fetchState();
+      } catch (error) {
+        els.statusBanner.textContent = error.message;
+        els.statusBanner.className = "status-banner error";
+      }
+    });
+
+    els.closeButton.addEventListener("click", async () => {
+      try {
+        await postJson("/api/session/close", {});
+        await fetchState();
+      } catch (error) {
+        els.statusBanner.textContent = error.message;
+        els.statusBanner.className = "status-banner error";
+      }
+    });
+
+    els.blueprintForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      els.queryResult.textContent = "查询中...";
+      try {
+        const result = await postJson("/api/plugins/blueprint-query", {
+          share_code: document.getElementById("share-code").value,
+          timeout: Number(document.getElementById("query-timeout").value || 10),
+        });
+        const data = result.blueprint_data || {};
+        els.bpName.textContent = data.name || "-";
+        els.bpNodeCount.textContent = String(data.node_count ?? "-");
+        els.bpComCount.textContent = String(data.component_count ?? "-");
+        els.queryResult.textContent = JSON.stringify(result, null, 2);
+        await fetchState();
+      } catch (error) {
+        els.queryResult.textContent = error.message;
+      }
+    });
+
+    fetchState();
+    setInterval(fetchState, 2000);
+  </script>
+</body>
+</html>

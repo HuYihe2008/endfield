@@ -92,6 +92,10 @@ class PassportLogin:
         self._device_info = device_info or DeviceInfo()
         self._cookies: list[str] = []
         self._qrcode_dir = qrcode_dir
+        self.last_scan_id: str = ""
+        self.last_scan_url: str = ""
+        self.last_qrcode_path: Optional[str] = None
+        self.last_qrcode_generated_at: Optional[float] = None
 
     def _update_cookies(self, cookies: list[str]) -> None:
         self._cookies = cookies
@@ -195,6 +199,8 @@ class PassportLogin:
         """完整扫码登录流程"""
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             scan_id, scan_url = await self.gen_scan_login(client)
+            self.last_scan_id = scan_id
+            self.last_scan_url = scan_url
             
             # 准备二维码保存路径
             qrcode_path = None
@@ -202,6 +208,8 @@ class PassportLogin:
                 qrcode_dir = Path(self._qrcode_dir)
                 qrcode_dir.mkdir(parents=True, exist_ok=True)
                 qrcode_path = str(qrcode_dir / f"qrcode_{int(time.time())}.png")
+            self.last_qrcode_path = qrcode_path
+            self.last_qrcode_generated_at = time.time()
             
             print("\n" + "="*60)
             print("请使用鹰角通行证 APP 扫描下方二维码登录")

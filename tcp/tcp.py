@@ -17,7 +17,7 @@ import time
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any, Callable, Iterator, Optional
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
@@ -877,6 +877,13 @@ class LoginResponse:
         return self.session_nonce.hex()
 
 
+@dataclass
+class _PendingMessageWaiter:
+    msgid: int
+    future: asyncio.Future[tuple[dict[str, Any], bytes]]
+    predicate: Optional[Callable[[dict[str, Any], bytes], bool]] = None
+
+
 class TCPClient:
     """TCP 客户端（对齐 Client.old 登录流程）"""
 
@@ -925,6 +932,9 @@ class TCPClient:
         self._last_server_time_ms = 0
         self._session_recv_count = 0
         self._last_session_recv_monotonic_ms = 0
+        self._request_lock = asyncio.Lock()
+        self._message_waiters: list[_PendingMessageWaiter] = []
+        self._message_listeners: list[Callable[[int, dict[str, Any], bytes], None]] = []
 
     @staticmethod
     def _epoch_ms() -> int:
@@ -1069,6 +1079,57 @@ class TCPClient:
             raise RuntimeError("会话加密尚未初始化")
         return self._session_encryptor, self._session_decryptor
 
+    def add_message_listener(self, listener: Callable[[int, dict[str, Any], bytes], None]) -> None:
+        self._message_listeners.append(listener)
+
+    def remove_message_listener(self, listener: Callable[[int, dict[str, Any], bytes], None]) -> None:
+        self._message_listeners = [item for item in self._message_listeners if item is not listener]
+
+    def _notify_message_listeners(self, msgid: int, head_info: dict[str, Any], body: bytes) -> None:
+        if not self._message_listeners:
+            return
+
+        for listener in tuple(self._message_listeners):
+            try:
+                listener(msgid, dict(head_info), bytes(body))
+            except Exception as exc:
+                logger.exception("[TCP] 消息监听器执行失败: %s", exc)
+
+    def _notify_message_waiters(self, msgid: int, head_info: dict[str, Any], body: bytes) -> None:
+        if not self._message_waiters:
+            return
+
+        remaining: list[_PendingMessageWaiter] = []
+        for waiter in self._message_waiters:
+            if waiter.future.done():
+                continue
+            if waiter.msgid != msgid:
+                remaining.append(waiter)
+                continue
+
+            try:
+                matched = True if waiter.predicate is None else bool(waiter.predicate(head_info, body))
+            except Exception as exc:
+                waiter.future.set_exception(exc)
+                continue
+
+            if matched:
+                waiter.future.set_result((dict(head_info), bytes(body)))
+            else:
+                remaining.append(waiter)
+
+        self._message_waiters = remaining
+
+    def _fail_pending_waiters(self, exc: Exception) -> None:
+        if not self._message_waiters:
+            return
+
+        for waiter in self._message_waiters:
+            if waiter.future.done():
+                continue
+            waiter.future.set_exception(exc)
+        self._message_waiters = []
+
     @staticmethod
     def _summarize_proto_fields(data: bytes, *, max_fields: int = 8) -> str:
         summary: list[str] = []
@@ -1119,6 +1180,41 @@ class TCPClient:
             "body_len": len(body),
             "checksum": checksum,
         }
+
+    async def request_message(
+        self,
+        msgid: int,
+        body: bytes,
+        *,
+        response_msgid: int,
+        predicate: Optional[Callable[[dict[str, Any], bytes], bool]] = None,
+        timeout: float = 10.0,
+    ) -> tuple[dict[str, Any], bytes]:
+        async with self._request_lock:
+            loop = asyncio.get_running_loop()
+            future: asyncio.Future[tuple[dict[str, Any], bytes]] = loop.create_future()
+            waiter = _PendingMessageWaiter(
+                msgid=response_msgid,
+                future=future,
+                predicate=predicate,
+            )
+            self._message_waiters.append(waiter)
+
+            try:
+                send_meta = await self.send_message(msgid, body)
+                logger.info(
+                    "[TCP] 已发送请求消息: msgid=%s, expect=%s, up_seqid=%s, body_len=%s, checksum=0x%08x",
+                    msgid,
+                    response_msgid,
+                    send_meta["up_seqid"],
+                    send_meta["body_len"],
+                    send_meta["checksum"],
+                )
+                return await asyncio.wait_for(future, timeout=timeout)
+            finally:
+                self._message_waiters = [
+                    item for item in self._message_waiters if item.future is not future
+                ]
 
     async def send_ping(self, *, client_ts: Optional[int] = None, logical_ts: Optional[int] = None) -> None:
         client_ts = self._epoch_ms() if client_ts is None else int(client_ts)
@@ -1197,6 +1293,10 @@ class TCPClient:
                 self._summarize_proto_fields(body),
             )
 
+        if msgid != MSG_ID_SC_ERROR:
+            self._notify_message_waiters(msgid, head_info, body)
+        self._notify_message_listeners(msgid, head_info, body)
+
         if msgid == MSG_ID_SC_PING:
             sc_ping = _parse_sc_ping(body)
             client_ts = int(sc_ping.get("client_ts", 0) or 0)
@@ -1237,6 +1337,11 @@ class TCPClient:
                 explanation or "<none>",
                 error_info.get("details", ""),
             )
+            self._fail_pending_waiters(
+                RuntimeError(
+                    f"服务端错误: {ERROR_CODES.get(err_code, f'Unknown({err_code})')}({err_code})"
+                )
+            )
             return
 
         logger.debug(
@@ -1270,9 +1375,11 @@ class TCPClient:
         except asyncio.IncompleteReadError:
             if not self._stop_event.is_set():
                 logger.warning("[TCP] 服务端关闭了连接")
+            self._fail_pending_waiters(RuntimeError("服务端关闭了连接"))
         except Exception as exc:
             if not self._stop_event.is_set():
                 logger.exception("[TCP] 会话接收循环异常: %s", exc)
+            self._fail_pending_waiters(RuntimeError(f"会话接收循环异常: {exc}"))
         finally:
             self._stop_event.set()
             self._closed_event.set()
@@ -1344,6 +1451,7 @@ class TCPClient:
 
     async def close(self) -> None:
         self._stop_event.set()
+        self._fail_pending_waiters(RuntimeError("TCP 会话已关闭"))
         tasks = [task for task in (self._ping_task, self._receive_task) if task is not None]
         for task in tasks:
             task.cancel()
@@ -1374,6 +1482,7 @@ class TCPClient:
         self._session_key = b""
         self._session_nonce = b""
         self._login_response = None
+        self._message_listeners = []
 
     async def login(
         self,

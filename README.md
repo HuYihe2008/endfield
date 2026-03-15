@@ -158,9 +158,8 @@ WebUI 当前提供：
 - [config/get_config.py](config/get_config.py)：launcher / resource / remote config 拉取与解密
 - [login/passport_login.py](login/passport_login.py)：**通行证扫码登录
 - [login/u8_login.py](login/u8_login.py)：U8 鉴权、取授权码、拉取服务器列表
-- [tcp/tcp.py](tcp/tcp.py)：`CsLogin` 构包、TCP 登录、响应解析
+- [tcp/tcp.py](tcp/tcp.py)：集中实现 `CsLogin` 构包、TCP 登录、响应解析
 - [tcp/srsa_bridge.py](tcp/srsa_bridge.py)：调用 `GameAssembly.dll` 导出的 SRSA 桥接
-- [login/build_login_plain.py](login/build_login_plain.py)：复用 TCP 主路径的 `CsLogin` 编码逻辑
 
 运行时生成：
 

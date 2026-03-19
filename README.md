@@ -70,7 +70,6 @@ python main.py --dll-dir "C:\Users\hyh28\Documents\Hg\Data" --no-cli
 当前已接入的命令行 plugin：
 
 - `blueprint-query`
-- 弹性物资调度插件（开发中）
 
 交互模式下可用命令：
 

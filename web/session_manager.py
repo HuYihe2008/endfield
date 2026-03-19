@@ -237,6 +237,13 @@ class EndfieldSessionManager:
         self._state.last_shop_price_state = state
         return state
 
+    async def get_shop_price_domainshops(self) -> dict[str, Any]:
+        plugin = self._get_shop_price_plugin()
+        summary = plugin.get_domainshop_summary()
+        state = plugin.get_state()
+        self._state.last_shop_price_state = state
+        return summary
+
     async def read_domain_development_versions(
         self,
         chapter_id: Optional[str] = None,

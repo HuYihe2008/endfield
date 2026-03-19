@@ -18,6 +18,7 @@
       --shadow: 0 24px 60px rgba(61, 42, 27, 0.12);
     }
     * { box-sizing: border-box; }
+    html { overflow-y: scroll; }
     body {
       margin: 0;
       font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
@@ -27,16 +28,17 @@
         radial-gradient(circle at bottom right, rgba(13, 148, 136, 0.14), transparent 30%),
         linear-gradient(135deg, #f8f4ee 0%, #eee4d8 100%);
       min-height: 100vh;
+      overflow-x: hidden;
     }
     .page { max-width: 1400px; margin: 0 auto; padding: 28px 18px 40px; }
     .hero { margin-bottom: 20px; }
     .eyebrow { color: var(--accent); font-size: 12px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
     h1 { margin: 8px 0 10px; font-size: clamp(28px, 5vw, 48px); line-height: 1.05; }
     .hero p { margin: 0; max-width: 920px; color: var(--sub); line-height: 1.7; }
-    .grid { display: grid; gap: 18px; }
-    .hero-grid { grid-template-columns: 1.1fr .9fr; }
-    .main-grid { grid-template-columns: .95fr 1.05fr; margin-top: 18px; }
-    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 24px; padding: 20px; box-shadow: var(--shadow); backdrop-filter: blur(8px); }
+    .grid { display: grid; gap: 18px; align-items: start; }
+    .hero-grid { grid-template-columns: 1.1fr .9fr; align-items: start; }
+    .main-grid { grid-template-columns: .95fr 1.05fr; margin-top: 18px; align-items: start; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 24px; padding: 20px; box-shadow: var(--shadow); backdrop-filter: blur(8px); min-width: 0; align-self: start; }
     .card h2, .card h3 { margin: 0 0 14px; }
     .card h3 { font-size: 18px; }
     .muted { color: var(--sub); }
@@ -64,9 +66,21 @@
     .qrcode { min-height: 260px; display: grid; place-items: center; border: 1px dashed rgba(31,41,51,.18); border-radius: 20px; background: linear-gradient(145deg, rgba(255,255,255,.82), rgba(247,241,232,.95)); overflow: hidden; }
     .qrcode img { max-width: 100%; display: block; }
     .step-grid { grid-template-columns: 1fr; }
-    .step { border: 1px solid var(--line); border-radius: 20px; padding: 18px; background: rgba(255,255,255,.58); }
+    .step { border: 1px solid var(--line); border-radius: 20px; padding: 18px; background: rgba(255,255,255,.58); min-width: 0; overflow: hidden; }
     .step-title { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
     .step-num { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: rgba(31,41,51,.08); font-weight: 700; }
+    .domainshop-cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); align-items: start; }
+    .domainshop-card { border: 1px solid var(--line); border-radius: 18px; padding: 14px; background: rgba(255,255,255,.74); min-width: 0; }
+    .domainshop-card h4 { margin: 0 0 8px; font-size: 15px; }
+    .domainshop-card .sub { color: var(--sub); font-size: 12px; line-height: 1.5; margin-bottom: 10px; word-break: break-all; }
+    .domainshop-metrics { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 12px; }
+    .domainshop-metric { border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; background: rgba(255,255,255,.76); }
+    .domainshop-metric .label { font-size: 11px; color: var(--sub); margin-bottom: 4px; }
+    .domainshop-metric .value { font-size: 13px; word-break: break-word; }
+    .domainshop-goods-list { display: grid; gap: 8px; max-height: 360px; overflow: auto; }
+    .domainshop-goods-row { border: 1px solid var(--line); border-radius: 12px; padding: 9px 10px; background: rgba(244, 238, 228, 0.55); }
+    .domainshop-goods-main { font-size: 13px; font-weight: 600; line-height: 1.5; word-break: break-all; }
+    .domainshop-goods-sub { margin-top: 4px; color: var(--sub); font-size: 12px; line-height: 1.5; }
     @media (max-width: 1080px) { .hero-grid, .main-grid, .form-grid.two, .meta-grid, .stats-grid { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -75,7 +89,7 @@
     <section class="hero">
       <div class="eyebrow">Experimental Plugin Console</div>
       <h1>登录保活 + 蓝图查询 + 调度终端实验链路</h1>
-      <p>当前页面以模拟程序主动发包为主，不依赖你进入游戏点击 UI。推荐顺序是：登录后主动读 `1553` 获取地区版本，必要时切当前 `domain`；如果已经收到 `SC_SHOP_SYNC(1352)` 就直接复用商店快照，否则继续等待 `1352` 或观察真实入站消息追链。</p>
+      <p>当前页面以模拟程序主动发包为主，不依赖你进入游戏点击 UI。当前主链路已经简化为：登录后点击“主动读地区版本”，直接查看整理后的 `domainshop -> goods -> 今日价 / 持有 / 历史价` 结果；只有缺少商店快照时，才继续等待 `SC_SHOP_SYNC(1352)`。</p>
     </section>
 
     <section class="grid hero-grid">
@@ -127,7 +141,7 @@
 
       <div class="card">
         <h2>调度终端路径</h2>
-        <div id="query-path-note" class="note blue">推荐路径：主动读地区版本 -> 选地区 / 切上下文 -> 复用或等待 `SC_SHOP_SYNC(1352)` -> 如果还没有结构化结果，立即观察真实入站消息。</div>
+        <div id="query-path-note" class="note blue">推荐路径：登录 -> 主动获取地区版本 -> 直接查看整理后的 domainshop 结果；只有在缺少商店快照时，才继续等待 `SC_SHOP_SYNC(1352)`。</div>
         <div class="step-grid" style="margin-top:16px;">
           <section class="step">
             <div class="step-title"><div class="step-num">1</div><div><h3>地区建设</h3><div class="muted">优先在模拟程序内主动发送 `CS_DOMAIN_DEVELOPMENT_READ_VERSION_INFO(1553)`。</div></div></div>
@@ -144,7 +158,9 @@
               <button class="primary" type="button" id="refresh-domain-dev">主动读地区版本</button>
               <button class="secondary" type="button" id="observe-domain-dev">等待地区建设回包</button>
             </div>
-            <pre id="domain-dev-result" class="pre" style="margin-top:12px;">等待地区建设结果...</pre>
+            <div class="note blue" style="margin-top:12px;">这里直接展示整理后的调度终端结果。注意：卡片的商品和价格主要来自登录后缓存的 `SC_SHOP_SYNC(1352)`，主动读地区版本 `1553` 主要用于补地区列表和版本信息。</div>
+            <div id="domainshop-cards" class="domainshop-cards" style="margin-top:12px;"></div>
+            <pre id="domain-dev-result" class="pre" style="margin-top:12px;">等待整理后的 domainshop 结果...</pre>
           </section>
 
           <section class="step">
@@ -221,9 +237,16 @@
             <pre id="local-goods-result" class="pre" style="margin-top:12px;">等待本地商品详情...</pre>
             <pre id="friend-goods-price-result" class="pre" style="margin-top:12px;">等待好友商品价格结果...</pre>
             <pre id="friend-shop-result" class="pre" style="margin-top:12px;">等待好友商店结果...</pre>
-            <pre id="shop-debug-result" class="pre" style="margin-top:12px;">等待调度终端调试快照...</pre>
+            <pre id="shop-debug-result" class="pre" style="margin-top:12px;">等待整理后的调度终端摘要...</pre>
           </section>
         </div>
+
+        <section class="step" style="margin-top:16px;">
+          <div class="step-title"><div class="step-num">Raw</div><div><h3>原始数据</h3><div class="muted">这里保留三份原始数据：全量状态大包、最近一次 `SC_SHOP_SYNC(1352)` 反馈，以及你最近一次显式点击按钮得到的原始 API 返回。</div></div></div>
+          <div class="field" style="margin-top:12px;"><label for="raw-state-result">全量状态 Raw</label><pre id="raw-state-result" class="pre">等待全量状态 Raw...</pre></div>
+          <div class="field" style="margin-top:12px;"><label for="shop-sync-json-result">SC_SHOP_SYNC(1352) JSON</label><pre id="shop-sync-json-result" class="pre">等待 SC_SHOP_SYNC(1352) ...</pre></div>
+          <div class="field" style="margin-top:12px;"><label for="raw-api-result">最近一次显式操作 Raw API</label><pre id="raw-api-result" class="pre">等待原始 API...</pre></div>
+        </section>
       </div>
     </section>
   </div>
@@ -260,6 +283,7 @@
       "domain-read-timeout",
       "refresh-domain-dev",
       "observe-domain-dev",
+      "domainshop-cards",
       "domain-dev-result",
       "domain-select",
       "channel-select",
@@ -301,7 +325,10 @@
       "local-goods-result",
       "friend-goods-price-result",
       "friend-shop-result",
-      "shop-debug-result"
+      "shop-debug-result",
+      "raw-state-result",
+      "shop-sync-json-result",
+      "raw-api-result"
     ];
 
     const els = Object.fromEntries(
@@ -313,7 +340,11 @@
       shopState: null,
       polling: false,
       manualShopDirty: false,
-      manualGoodsDirty: false
+      manualGoodsDirty: false,
+      renderCache: {},
+      lastQrKey: "",
+      rawApiInitialized: false,
+      rawStateInitialized: false
     };
 
     function pretty(value) {
@@ -325,6 +356,10 @@
         return;
       }
       const normalized = value === undefined || value === null || value === "" ? "-" : String(value);
+      if (uiState.renderCache["text:" + id] === normalized) {
+        return;
+      }
+      uiState.renderCache["text:" + id] = normalized;
       els[id].textContent = normalized;
     }
 
@@ -332,7 +367,28 @@
       if (!els[id]) {
         return;
       }
-      els[id].textContent = typeof value === "string" ? value : pretty(value);
+      const normalized = typeof value === "string" ? value : pretty(value);
+      if (uiState.renderCache["pre:" + id] === normalized) {
+        return;
+      }
+      uiState.renderCache["pre:" + id] = normalized;
+      els[id].textContent = normalized;
+    }
+
+    function setRawApi(source, payload) {
+      uiState.rawApiInitialized = true;
+      setPre("raw-api-result", {
+        source: source,
+        payload: payload
+      });
+    }
+
+    function setRawState(source, payload) {
+      uiState.rawStateInitialized = true;
+      setPre("raw-state-result", {
+        source: source,
+        payload: payload
+      });
     }
 
     function asNumber(value, fallback) {
@@ -375,8 +431,14 @@
     }
 
     function statusError(message) {
+      const text = message || "请求失败";
+      const bannerKey = "status-banner error|" + text;
+      if (uiState.renderCache.banner === bannerKey) {
+        return;
+      }
+      uiState.renderCache.banner = bannerKey;
       els["status-banner"].className = "status-banner error";
-      els["status-banner"].textContent = message || "请求失败";
+      els["status-banner"].textContent = text;
     }
 
     function buildOption(value, label) {
@@ -386,6 +448,30 @@
     function setSelectOptions(selectEl, options, preferredValue, emptyLabel) {
       const previous = String(selectEl.value || "");
       const preferred = String(preferredValue || "");
+      const validValues = new Set(options.map((item) => item.value));
+      const selectedValue =
+        options.length
+          ? (
+              (preferred && validValues.has(preferred) && preferred) ||
+              (previous && validValues.has(previous) && previous) ||
+              options[0].value
+            )
+          : "";
+      const disabled = !options.length;
+      const signature = disabled
+        ? "__empty__:" + emptyLabel
+        : JSON.stringify(options);
+
+      if (selectEl.dataset.optionsSignature === signature) {
+        if (selectEl.disabled !== disabled) {
+          selectEl.disabled = disabled;
+        }
+        if (String(selectEl.value || "") !== selectedValue) {
+          selectEl.value = selectedValue;
+        }
+        return selectedValue;
+      }
+
       selectEl.innerHTML = "";
 
       if (!options.length) {
@@ -395,6 +481,7 @@
         selectEl.appendChild(option);
         selectEl.value = "";
         selectEl.disabled = true;
+        selectEl.dataset.optionsSignature = signature;
         return "";
       }
 
@@ -405,13 +492,9 @@
         selectEl.appendChild(option);
       }
 
-      const validValues = new Set(options.map((item) => item.value));
-      const selectedValue =
-        (preferred && validValues.has(preferred) && preferred) ||
-        (previous && validValues.has(previous) && previous) ||
-        options[0].value;
       selectEl.disabled = false;
       selectEl.value = selectedValue;
+      selectEl.dataset.optionsSignature = signature;
       return selectedValue;
     }
 
@@ -447,9 +530,14 @@
 
     function renderSession(session) {
       uiState.session = session;
-      const statusText = [session.message || "", session.error || ""].filter(Boolean).join(" | ") || "尚未建立会话";
-      els["status-banner"].className = session.error ? "status-banner error" : "status-banner";
-      els["status-banner"].textContent = statusText;
+      const statusText = [session.stage || "", session.message || "", session.error || ""].filter(Boolean).join(" | ") || "尚未建立会话";
+      const bannerClass = session.error ? "status-banner error" : "status-banner";
+      const bannerKey = bannerClass + "|" + statusText;
+      if (uiState.renderCache.banner !== bannerKey) {
+        uiState.renderCache.banner = bannerKey;
+        els["status-banner"].className = bannerClass;
+        els["status-banner"].textContent = statusText;
+      }
 
       setText("meta-stage", session.stage || "idle");
       setText("meta-ready", String(Boolean(session.ready)));
@@ -464,16 +552,28 @@
       );
 
       const qrcodeBox = els["qrcode-box"];
-      qrcodeBox.innerHTML = "";
-      if (session.qrcode_image_url) {
+      const shouldShowQr = Boolean(!session.ready && session.qrcode_image_url);
+      const qrcodeText = shouldShowQr
+        ? ""
+        : (session.ready
+          ? "会话已建立，二维码已停止刷新。"
+          : (session.stage === "waiting_scan"
+            ? "正在等待扫码二维码..."
+            : "发起登录后，这里会显示二维码。"));
+      const qrKey = shouldShowQr ? ("img:" + session.qrcode_image_url) : ("text:" + qrcodeText);
+      if (uiState.lastQrKey !== qrKey) {
+        uiState.lastQrKey = qrKey;
+        qrcodeBox.innerHTML = "";
+      }
+      if (shouldShowQr && !qrcodeBox.querySelector("img")) {
         const img = document.createElement("img");
         img.alt = "qrcode";
-        img.src = session.qrcode_image_url + "?t=" + Date.now();
+        img.src = session.qrcode_image_url;
         qrcodeBox.appendChild(img);
-      } else {
+      } else if (!shouldShowQr && !qrcodeBox.querySelector(".muted")) {
         const text = document.createElement("div");
         text.className = "muted";
-        text.textContent = "发起登录后，这里会显示二维码。";
+        text.textContent = qrcodeText;
         qrcodeBox.appendChild(text);
       }
       setText("scan-url", "scanUrl: " + (session.scan_url || "-"));
@@ -499,8 +599,18 @@
       const shopState = uiState.shopState || {};
       const domain = getSelectedDomainInfo();
       const shops = Array.isArray(shopState.shops) ? shopState.shops.slice() : [];
+      const domainshopOnly = shops.filter((item) => {
+        const shopId = String(item && item.shop_id || "");
+        return shopId.startsWith("domainshop_page_") &&
+          (
+            Number(item && item.local_goods_count || 0) > 0 ||
+            Number(item && item.domain_rand_goods_count || 0) > 0 ||
+            String(item && item.refresh_data_case || "") === "RandomDomain"
+          );
+      });
+      const visibleShops = domainshopOnly.length ? domainshopOnly : shops;
       if (!domain) {
-        return shops.sort((a, b) => String(a.shop_id || "").localeCompare(String(b.shop_id || "")));
+        return visibleShops.sort((a, b) => String(a.shop_id || "").localeCompare(String(b.shop_id || "")));
       }
 
       const boundSet = new Set(Array.isArray(domain.bound_shop_ids) ? domain.bound_shop_ids.map((item) => String(item)) : []);
@@ -516,7 +626,7 @@
         return 1;
       };
 
-      return shops.sort((a, b) => {
+      return visibleShops.sort((a, b) => {
         const diff = score(b) - score(a);
         if (diff !== 0) {
           return diff;
@@ -526,14 +636,183 @@
     }
 
     function getSelectedGoodsInfo() {
-      const shopState = uiState.shopState || {};
       const shopId = String(els["manual-shop-id"].value || els["shop-select"].value || "").trim();
       const goodsId = String(els["manual-goods-id"].value || els["goods-select"].value || "").trim();
       if (!shopId || !goodsId) {
         return null;
       }
+      const shop = getShopDetailById(shopId);
+      const localGoods = Array.isArray(shop && shop.local_goods) ? shop.local_goods : [];
+      const localGoodsMatch = localGoods.find((item) => String(item.goods_id || "") === goodsId) || null;
+      if (localGoodsMatch) {
+        return localGoodsMatch;
+      }
+      const shopState = uiState.shopState || {};
       const goodsIndex = Array.isArray(shopState.goods_index) ? shopState.goods_index : [];
       return goodsIndex.find((item) => String(item.shop_id || "") === shopId && String(item.goods_id || "") === goodsId) || null;
+    }
+
+    function getQueryableShops() {
+      return Array.isArray(uiState.shopState && uiState.shopState.queryable_shops)
+        ? uiState.shopState.queryable_shops
+        : [];
+    }
+
+    function getDomainshopSummary(shopState) {
+      const state = shopState || uiState.shopState || {};
+      const summary = state.domainshop_summary;
+      if (summary && Array.isArray(summary.domainshops)) {
+        return summary;
+      }
+      return {
+        generated_at: state.generated_at || null,
+        generated_at_text: state.generated_at_text || "",
+        domainshop_count: 0,
+        goods_count: 0,
+        owned_goods_count: 0,
+        today_price_goods_count: 0,
+        holding_quantity_total: 0,
+        domainshops: []
+      };
+    }
+
+    function getShopDetailById(shopId) {
+      const normalizedShopId = String(shopId || "").trim();
+      if (!normalizedShopId) {
+        return null;
+      }
+      return getQueryableShops().find((item) => String(item.shop_id || "") === normalizedShopId)
+        || (Array.isArray(uiState.shopState && uiState.shopState.shops)
+          ? uiState.shopState.shops.find((item) => String(item.shop_id || "") === normalizedShopId)
+          : null)
+        || null;
+    }
+
+    function buildDomainshopApiPayload(source) {
+      const state = source && source.state ? source.state : (source || {});
+      const domainshopSummary = getDomainshopSummary(state);
+      const payload = {
+        generated_at: state.generated_at || null,
+        generated_at_text: state.generated_at_text || "",
+        domainshop_count: domainshopSummary.domainshop_count || 0,
+        goods_count: domainshopSummary.goods_count || 0,
+        owned_goods_count: domainshopSummary.owned_goods_count || 0,
+        today_price_goods_count: domainshopSummary.today_price_goods_count || 0,
+        holding_quantity_total: domainshopSummary.holding_quantity_total || 0,
+        domainshops: domainshopSummary.domainshops || []
+      };
+
+      if (source && source.state) {
+        payload.requested_at = source.requested_at || null;
+        payload.requested_at_text = source.requested_at_text || "";
+        payload.requested_chapter_ids = Array.isArray(source.requested_chapter_ids) ? source.requested_chapter_ids : [];
+      }
+
+      return payload;
+    }
+
+    function appendDomainshopMetric(container, label, value) {
+      const item = document.createElement("div");
+      item.className = "domainshop-metric";
+
+      const labelEl = document.createElement("div");
+      labelEl.className = "label";
+      labelEl.textContent = label;
+
+      const valueEl = document.createElement("div");
+      valueEl.className = "value";
+      valueEl.textContent = value === undefined || value === null || value === "" ? "-" : String(value);
+
+      item.appendChild(labelEl);
+      item.appendChild(valueEl);
+      container.appendChild(item);
+    }
+
+    function renderDomainshopCards(shopState) {
+      const summary = getDomainshopSummary(shopState);
+      const domainshops = Array.isArray(summary.domainshops) ? summary.domainshops : [];
+      const container = els["domainshop-cards"];
+      if (!container) {
+        return;
+      }
+
+      const signature = JSON.stringify(domainshops);
+      if (uiState.renderCache["cards:domainshop-cards"] === signature) {
+        return;
+      }
+      uiState.renderCache["cards:domainshop-cards"] = signature;
+      container.innerHTML = "";
+
+      if (!domainshops.length) {
+        const empty = document.createElement("div");
+        empty.className = "note";
+        empty.textContent = "还没有整理出可展示的 domainshop 商品结果。";
+        container.appendChild(empty);
+        return;
+      }
+
+      for (const domainshop of domainshops) {
+        const card = document.createElement("article");
+        card.className = "domainshop-card";
+
+        const title = document.createElement("h4");
+        title.textContent = String(domainshop.shop_id || domainshop.domainshop_id || "-");
+        card.appendChild(title);
+
+        const sub = document.createElement("div");
+        sub.className = "sub";
+        sub.textContent = [
+          domainshop.domainshop_id || "",
+          domainshop.refresh_data_case || "",
+          domainshop.channel_count ? ("频道 " + domainshop.channel_count) : "",
+          domainshop.version ? ("版本 " + domainshop.version) : ""
+        ].filter(Boolean).join(" | ") || "-";
+        card.appendChild(sub);
+
+        const metrics = document.createElement("div");
+        metrics.className = "domainshop-metrics";
+        appendDomainshopMetric(metrics, "商品总数", domainshop.goods_count || 0);
+        appendDomainshopMetric(metrics, "今日价数量", domainshop.today_price_goods_count || 0);
+        appendDomainshopMetric(metrics, "已持有商品", domainshop.owned_goods_count || 0);
+        appendDomainshopMetric(metrics, "持有总量", domainshop.holding_quantity_total || 0);
+        card.appendChild(metrics);
+
+        const goodsList = document.createElement("div");
+        goodsList.className = "domainshop-goods-list";
+        const goods = Array.isArray(domainshop.goods) ? domainshop.goods : [];
+        for (const goodsItem of goods) {
+          const row = document.createElement("div");
+          row.className = "domainshop-goods-row";
+
+          const main = document.createElement("div");
+          main.className = "domainshop-goods-main";
+          main.textContent =
+            String(goodsItem.goods_id || "-") +
+            " | 今日价 " + (goodsItem.has_today_price ? goodsItem.today_price : "-");
+
+          const subLine = document.createElement("div");
+          subLine.className = "domainshop-goods-sub";
+          subLine.textContent =
+            "持有 " + (goodsItem.holding_quantity || 0) +
+            " | 持仓均价 " + (goodsItem.is_owned ? goodsItem.holding_avg_price : "-") +
+            " | 历史价 " + (goodsItem.history_price_count || 0) + " 条";
+
+          row.appendChild(main);
+          row.appendChild(subLine);
+          goodsList.appendChild(row);
+        }
+
+        card.appendChild(goodsList);
+        container.appendChild(card);
+      }
+    }
+
+    function getLatestMeaningfulRawMessage(shopState) {
+      const rawMessages = Array.isArray(shopState && shopState.recent_raw_messages)
+        ? shopState.recent_raw_messages
+        : [];
+      const noisyMsgIds = new Set([231, 501]);
+      return rawMessages.find((item) => !noisyMsgIds.has(Number(item && item.msgid || 0))) || rawMessages[0] || null;
     }
 
     function renderDomainSelection(shopState) {
@@ -570,6 +849,7 @@
 
     function renderFlowState(shopState) {
       const summary = shopState && shopState.summary ? shopState.summary : {};
+      const domainshopSummary = getDomainshopSummary(shopState);
       const knownDomains = Array.isArray(shopState && shopState.known_domains) ? shopState.known_domains : [];
       const versionRecords = Array.isArray(shopState && shopState.domain_version_records) ? shopState.domain_version_records : [];
       const domain = getSelectedDomainInfo();
@@ -580,9 +860,18 @@
       setText("domain-known-count", Array.isArray(shopState && shopState.derived_domains) ? shopState.derived_domains.length : 0);
       setText("domain-record-count", knownDomains.length);
       setText("domain-version-count", versionRecords.length);
-      setText("shop-count", summary.shop_count !== undefined ? summary.shop_count : 0);
-      setText("queryable-shop-count", summary.queryable_shop_count !== undefined ? summary.queryable_shop_count : 0);
-      setText("goods-count", summary.goods_count !== undefined ? summary.goods_count : 0);
+      setText(
+        "shop-count",
+        domainshopSummary.domainshop_count !== undefined ? domainshopSummary.domainshop_count : (summary.shop_count !== undefined ? summary.shop_count : 0)
+      );
+      setText(
+        "queryable-shop-count",
+        domainshopSummary.domainshop_count !== undefined ? domainshopSummary.domainshop_count : (summary.queryable_shop_count !== undefined ? summary.queryable_shop_count : 0)
+      );
+      setText(
+        "goods-count",
+        domainshopSummary.goods_count !== undefined ? domainshopSummary.goods_count : (summary.goods_count !== undefined ? summary.goods_count : 0)
+      );
 
       setText("current-domain-value", domain ? domain.domain_id : (shopState && shopState.current_domain_id) || "-");
       setText("current-channel-value", channelId || "-");
@@ -592,6 +881,9 @@
       setText("channel-level-value", channelId && channelLevel !== undefined ? ("Lv." + channelLevel) : "-");
 
       let dispatchNote = "请先读取地区信息并选择地区。";
+      const todayPriceGoodsCount = Number(domainshopSummary.today_price_goods_count || summary.today_price_goods_count || 0);
+      const ownedGoodsCount = Number(domainshopSummary.owned_goods_count || summary.owned_goods_count || 0);
+      const domainRandGoodsCount = Number(domainshopSummary.goods_count || summary.domain_rand_goods_count || 0);
       if (!uiState.session || !uiState.session.ready) {
         dispatchNote = "会话未就绪，当前只能查看缓存状态。";
       } else if (domain) {
@@ -615,18 +907,22 @@
         if (channelId) {
           dispatchNote += " 当前频道：" + channelId + "。";
         }
+        if (domainRandGoodsCount > 0 || todayPriceGoodsCount > 0 || ownedGoodsCount > 0) {
+          dispatchNote +=
+            " 当前已识别弹性物资 " +
+            domainRandGoodsCount +
+            " 个，已拿到今日价格 " +
+            todayPriceGoodsCount +
+            " 个，已持有 " +
+            ownedGoodsCount +
+            " 个。";
+        }
       }
-      els["dispatch-note"].textContent = dispatchNote;
-
-      const latestRaw = Array.isArray(shopState && shopState.recent_raw_messages) && shopState.recent_raw_messages.length
-        ? shopState.recent_raw_messages[0]
-        : null;
-      const latestRawText = latestRaw
-        ? ("最近入站：" + (latestRaw.message_name || latestRaw.msgid || "-") + " (" + (latestRaw.msgid || "-") + ")")
-        : "还没有入站消息探针结果";
-      els["query-path-note"].textContent =
-        "推荐路径：主动读地区版本 -> 选地区 / 切上下文 -> 复用或等待 `SC_SHOP_SYNC(1352)` -> 如果还没有结构化结果，立即观察真实入站消息。 " +
-        latestRawText + "。";
+      setText("dispatch-note", dispatchNote);
+      setText(
+        "query-path-note",
+        "推荐路径：登录 -> 主动获取地区版本 -> 直接查看整理后的 domainshop 结果；只有在缺少商店快照时，才继续等待 `SC_SHOP_SYNC(1352)`。"
+      );
     }
 
     function renderShopSelection(shopState) {
@@ -636,9 +932,15 @@
       const shopOptions = shops.map((item) => {
         const goodsCount = item.local_goods_count || 0;
         const refreshCase = item.refresh_data_case || "None";
+        const randGoodsCount = Number(item.domain_rand_goods_count || 0);
+        const positionCount = Number(item.position_count || item.owned_goods_count || 0);
         return buildOption(
           item.shop_id,
-          item.shop_id + " | goods " + goodsCount + " | " + refreshCase
+          item.shop_id +
+            " | goods " + goodsCount +
+            (randGoodsCount > 0 ? (" | rand " + randGoodsCount) : "") +
+            (positionCount > 0 ? (" | 持有 " + positionCount) : "") +
+            " | " + refreshCase
         );
       });
       const selectedShopId = setSelectOptions(
@@ -652,13 +954,19 @@
         els["manual-shop-id"].value = selectedShopId;
       }
 
-      const shop = shops.find((item) => String(item.shop_id || "") === selectedShopId) || null;
+      const shop = getShopDetailById(selectedShopId);
       const goods = Array.isArray(shop && shop.local_goods) ? shop.local_goods : [];
       const goodsOptions = goods.map((item) => {
         const templateId = item.goods_template_id ? ("tpl " + item.goods_template_id) : "tpl -";
+        const todayPrice = item.has_today_price ? item.today_price : "-";
+        const holdingAvgPrice = item.is_owned ? item.holding_avg_price : "-";
         return buildOption(
           item.goods_id,
-          item.goods_id + " | " + templateId + " | avg " + (item.avg_price || 0) + " | qty " + (item.quantity || 0)
+          item.goods_id +
+            " | 今日 " + todayPrice +
+            " | 持有 " + (item.holding_quantity || 0) +
+            " | 均价 " + holdingAvgPrice +
+            " | " + templateId
         );
       });
       const selectedGoodsId = setSelectOptions(
@@ -678,9 +986,7 @@
     function renderLocalGoodsDetail(shopState) {
       const shopId = String(els["manual-shop-id"].value || els["shop-select"].value || "").trim();
       const goodsId = String(els["manual-goods-id"].value || els["goods-select"].value || "").trim();
-      const shop = (Array.isArray(shopState && shopState.shops) ? shopState.shops : []).find(
-        (item) => String(item.shop_id || "") === shopId
-      ) || null;
+      const shop = getShopDetailById(shopId);
       const goods = getSelectedGoodsInfo();
 
       if (!shopId && !goodsId) {
@@ -694,6 +1000,10 @@
           shop_id: shop.shop_id,
           refresh_data_case: shop.refresh_data_case,
           local_goods_count: shop.local_goods_count,
+          domain_rand_goods_count: shop.domain_rand_goods_count,
+          position_count: shop.position_count,
+          owned_goods_count: shop.owned_goods_count,
+          today_price_goods_count: shop.today_price_goods_count,
           random_type: shop.random_type,
           shop_refresh_type: shop.shop_refresh_type
         } : { shop_id: shopId, note: "当前输入 shopId 尚未出现在已解析快照中" },
@@ -705,23 +1015,85 @@
       if (!shopState) {
         return;
       }
+      const domainshopSummary = getDomainshopSummary(shopState);
+      if (!uiState.rawStateInitialized) {
+        setRawState("state:auto-initial", shopState);
+      }
       uiState.shopState = shopState;
       renderDomainSelection(shopState);
       renderFlowState(shopState);
       renderShopSelection(shopState);
+      renderDomainshopCards(shopState);
+      renderShopSyncRaw(shopState);
       setPre("shop-debug-result", {
         summary: shopState.summary || {},
         current_domain_id: shopState.current_domain_id || "",
         current_chapter_id: shopState.current_chapter_id || "",
-        refresh_case_counts: shopState.refresh_case_counts || [],
-        last_domain_version_request: shopState.last_domain_version_request || null,
-        last_domain_switch_request: shopState.last_domain_switch_request || null,
-        last_shop_begin_request: shopState.last_shop_begin_request || null,
-        last_friend_goods_price_query: shopState.last_friend_goods_price_query || null,
-        last_friend_shop_query: shopState.last_friend_shop_query || null,
-        recent_events: Array.isArray(shopState.recent_events) ? shopState.recent_events.slice(0, 12) : [],
-        recent_raw_messages: Array.isArray(shopState.recent_raw_messages) ? shopState.recent_raw_messages.slice(0, 12) : []
+        domainshop_summary: {
+          domainshop_count: domainshopSummary.domainshop_count || 0,
+          goods_count: domainshopSummary.goods_count || 0,
+          owned_goods_count: domainshopSummary.owned_goods_count || 0,
+          today_price_goods_count: domainshopSummary.today_price_goods_count || 0,
+          holding_quantity_total: domainshopSummary.holding_quantity_total || 0,
+          domainshops: Array.isArray(domainshopSummary.domainshops) ? domainshopSummary.domainshops : []
+        },
+        derived_domains: Array.isArray(shopState.derived_domains)
+          ? shopState.derived_domains.map((item) => ({
+              domain_id: item.domain_id,
+              level: item.level,
+              version: item.version,
+              channel_count: item.channel_count,
+              preferred_shop_id: item.preferred_shop_id || ""
+        }))
+          : []
       });
+    }
+
+    function buildObservedSummary(result) {
+      if (!result || !result.observed) {
+        return null;
+      }
+      return {
+        msgid: result.observed.msgid || 0,
+        message_name: result.observed.message_name || "",
+        kind: result.observed.kind || "",
+        received_at_text: result.observed.received_at_text || "",
+        summary: result.observed.summary || result.observed.parsed || null
+      };
+    }
+
+    function buildRawObservedSummary(result) {
+      if (!result || !result.raw_observed) {
+        return null;
+      }
+      return {
+        msgid: result.raw_observed.msgid || 0,
+        message_name: result.raw_observed.message_name || "",
+        received_at_text: result.raw_observed.received_at_text || "",
+        error_name: result.raw_observed.error_name || "",
+        error_explanation: result.raw_observed.error_explanation || "",
+        field_summary: result.raw_observed.field_summary || "",
+        body_hex_prefix: result.raw_observed.body_hex_prefix || ""
+      };
+    }
+
+    function buildStructuredOperationPayload(operation, result) {
+      return {
+        operation: operation,
+        timeout: Boolean(result && result.timeout),
+        observed: buildObservedSummary(result),
+        raw_observed: buildRawObservedSummary(result),
+        domainshop_summary: buildDomainshopApiPayload(result || {})
+      };
+    }
+
+    function renderShopSyncRaw(shopState) {
+      const feedback = shopState && shopState.last_shop_sync_feedback ? shopState.last_shop_sync_feedback : null;
+      if (!feedback) {
+        setPre("shop-sync-json-result", "等待 SC_SHOP_SYNC(1352) ...");
+        return;
+      }
+      setPre("shop-sync-json-result", feedback);
     }
 
     async function fetchSession() {
@@ -750,10 +1122,12 @@
           chapter_id: chapterId,
           timeout: timeout
         });
-        setPre("domain-dev-result", result);
+        setRawApi("domain-development/read-version", result);
         if (result.state) {
+          setRawState("state:domain-development/read-version", result.state);
           renderShopState(result.state);
         }
+        setPre("domain-dev-result", buildDomainshopApiPayload(result));
       } catch (error) {
         setPre("domain-dev-result", { error: String(error.message || error) });
         statusError(String(error.message || error));
@@ -766,10 +1140,12 @@
         const result = await postJson("/api/plugins/shop-price-query/domain-development/observe", {
           timeout: timeout
         });
-        setPre("domain-dev-result", result);
+        setRawApi("domain-development/observe", result);
         if (result.state) {
+          setRawState("state:domain-development/observe", result.state);
           renderShopState(result.state);
         }
+        setPre("domain-dev-result", buildStructuredOperationPayload("observe-domain-development", result));
       } catch (error) {
         setPre("domain-dev-result", { error: String(error.message || error) });
         statusError(String(error.message || error));
@@ -788,6 +1164,10 @@
           domain_id: domainId,
           timeout: timeout
         });
+        setRawApi("domain/switch", result);
+        if (result.state) {
+          setRawState("state:domain/switch", result.state);
+        }
         setPre("domain-switch-result", result);
         if (result.state) {
           renderShopState(result.state);
@@ -806,10 +1186,12 @@
           domain_id: domainId,
           timeout: timeout
         });
-        setPre("shop-begin-result", result);
+        setRawApi("shop-begin", result);
         if (result.state) {
+          setRawState("state:shop-begin", result.state);
           renderShopState(result.state);
         }
+        setPre("shop-begin-result", buildStructuredOperationPayload("shop-begin", result));
       } catch (error) {
         setPre("shop-begin-result", { error: String(error.message || error) });
         statusError(String(error.message || error));
@@ -822,10 +1204,12 @@
         const result = await postJson("/api/plugins/shop-price-query/shop/observe", {
           timeout: timeout
         });
-        setPre("observe-shop-result", result);
+        setRawApi("shop/observe", result);
         if (result.state) {
+          setRawState("state:shop/observe", result.state);
           renderShopState(result.state);
         }
+        setPre("observe-shop-result", buildStructuredOperationPayload("observe-shop-sync", result));
       } catch (error) {
         setPre("observe-shop-result", { error: String(error.message || error) });
         statusError(String(error.message || error));
@@ -840,6 +1224,10 @@
           timeout: timeout,
           msgid: msgidValue ? Number(msgidValue) : null
         });
+        setRawApi("messages/observe", result);
+        if (result.state) {
+          setRawState("state:messages/observe", result.state);
+        }
         setPre("observe-inbound-result", result);
         if (result.state) {
           renderShopState(result.state);
@@ -867,6 +1255,10 @@
           preferred: true,
           note: note
         });
+        setRawApi("domain-binding", result);
+        if (result.state) {
+          setRawState("state:domain-binding", result.state);
+        }
         setPre("domain-binding-result", result);
         if (result.state) {
           renderShopState(result.state);
@@ -897,6 +1289,10 @@
           role_ids: roleIds,
           timeout: timeout
         });
+        setRawApi("friend-goods-price", result);
+        if (result.state) {
+          setRawState("state:friend-goods-price", result.state);
+        }
         setPre("friend-goods-price-result", result);
         if (result.state) {
           renderShopState(result.state);
@@ -926,6 +1322,10 @@
           shop_ids: shopIds,
           timeout: timeout
         });
+        setRawApi("friend-shop", result);
+        if (result.state) {
+          setRawState("state:friend-shop", result.state);
+        }
         setPre("friend-shop-result", result);
         if (result.state) {
           renderShopState(result.state);
@@ -1071,7 +1471,7 @@
     });
 
     setPre("query-result", "等待查询结果...");
-    setPre("domain-dev-result", "等待地区建设结果...");
+    setPre("domain-dev-result", "等待整理后的 domainshop 结果...");
     setPre("domain-switch-result", "等待地区切换结果...");
     setPre("shop-begin-result", "等待物资调度状态结果...");
     setPre("observe-shop-result", "等待商店同步结果...");
@@ -1080,7 +1480,11 @@
     setPre("local-goods-result", "等待本地商品详情...");
     setPre("friend-goods-price-result", "等待好友商品价格结果...");
     setPre("friend-shop-result", "等待好友商店结果...");
-    setPre("shop-debug-result", "等待调度终端调试快照...");
+    setPre("shop-debug-result", "等待整理后的调度终端摘要...");
+    setPre("raw-state-result", "等待全量状态 Raw...");
+    setPre("shop-sync-json-result", "等待 SC_SHOP_SYNC(1352) ...");
+    setPre("raw-api-result", "等待原始 API...");
+    renderDomainshopCards(null);
 
     refreshLoop();
     setInterval(refreshLoop, 2000);

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 import zlib
 from collections import Counter, deque
@@ -100,6 +101,62 @@ def _append_varint_field(out: list[int], wire: int, value: bytes | int) -> None:
         return
     if wire == 2 and isinstance(value, bytes):
         out.extend(_parse_packed_varints(value))
+
+
+def _build_local_goods_entry(goods_id: str, item: dict[str, Any]) -> dict[str, Any]:
+    history_prices = [int(value) for value in (item.get("history_prices") or [])]
+    history_price_count = int(item.get("history_price_count", len(history_prices)) or 0)
+    quantity = int(item.get("quantity", 0) or 0)
+    avg_price = int(item.get("avg_price", 0) or 0)
+    today_price = int(history_prices[0] or 0) if history_prices else 0
+    return {
+        "goods_id": goods_id,
+        "goods_template_id": str(item.get("goods_template_id") or ""),
+        "avg_price": avg_price,
+        "quantity": quantity,
+        "holding_avg_price": avg_price,
+        "holding_quantity": quantity,
+        "is_owned": quantity > 0,
+        "today_price": today_price,
+        "has_today_price": history_price_count > 0,
+        "today_price_source": "history_prices[0]" if history_price_count > 0 else "",
+        "history_prices": history_prices,
+        "history_price_count": history_price_count,
+    }
+
+
+def _sort_key_by_numeric_tail(value: str) -> tuple[str, int, str]:
+    text = str(value or "")
+    match = re.search(r"(\d+)(?!.*\d)", text)
+    if not match:
+        return (text, -1, text)
+    prefix = text[:match.start()]
+    return (prefix, int(match.group(1)), text)
+
+
+def _infer_domainshop_id_from_shop_id(shop_id: str) -> str:
+    text = str(shop_id or "").strip()
+    if not text.startswith("domainshop_page_"):
+        return ""
+
+    suffix = text[len("domainshop_page_") :]
+    for prefix in ("rand_", "com_", "common_"):
+        if suffix.startswith(prefix):
+            suffix = suffix[len(prefix) :]
+            break
+    suffix = suffix.strip("_")
+    return f"domainshop_{suffix}" if suffix else ""
+
+
+def _infer_domainshop_kind_from_shop_id(shop_id: str) -> str:
+    text = str(shop_id or "").strip()
+    if "_page_rand_" in text:
+        return "rand"
+    if "_page_com_" in text:
+        return "com"
+    if text.startswith("domainshop_page_"):
+        return "page"
+    return ""
 
 
 def _parse_string_int_map_entry(data: bytes) -> tuple[str, int]:
@@ -787,6 +844,7 @@ class ShopPriceQueryPlugin(PluginBase):
         self._refresh_case_counts: Counter[str] = Counter()
         self._frequency_limit_mgr_summary: Optional[dict[str, Any]] = None
         self._last_shop_sync_parse_meta: Optional[dict[str, Any]] = None
+        self._last_shop_sync_feedback: Optional[dict[str, Any]] = None
         self._domain_shop_bindings = self._load_domain_shop_bindings()
 
         self._last_domain_version_request: Optional[dict[str, Any]] = None
@@ -1089,20 +1147,16 @@ class ShopPriceQueryPlugin(PluginBase):
 
             local_goods: list[dict[str, Any]] = []
             for goods_id, item in goods_map.items():
-                local_goods.append(
-                    {
-                        "goods_id": goods_id,
-                        "goods_template_id": str(item.get("goods_template_id") or ""),
-                        "avg_price": int(item.get("avg_price", 0) or 0),
-                        "quantity": int(item.get("quantity", 0) or 0),
-                        "history_prices": list(item.get("history_prices") or []),
-                        "history_price_count": int(item.get("history_price_count", 0) or 0),
-                    }
-                )
+                local_goods.append(_build_local_goods_entry(goods_id, item))
 
-            local_goods.sort(key=lambda item: item.get("goods_id", ""))
+            local_goods.sort(key=lambda item: _sort_key_by_numeric_tail(str(item.get("goods_id") or "")))
+            today_price_goods_count = sum(1 for item in local_goods if item.get("has_today_price"))
+            owned_goods_count = sum(1 for item in local_goods if item.get("is_owned"))
+            dynamic_goods_count = len(random_refresh.get("dynamic_goods") or [])
+            domain_rand_goods_count = int(random_domain.get("domain_rand_goods_count", 0) or 0)
+            position_count = int(random_domain.get("position_count", 0) or 0)
 
-            view = {
+            overview = {
                 "shop_id": shop_id,
                 "shop_refresh_type": int(raw_shop.get("shop_refresh_type", 0) or 0),
                 "unlock_condition_values": dict(raw_shop.get("unlock_condition_values") or {}),
@@ -1115,18 +1169,23 @@ class ShopPriceQueryPlugin(PluginBase):
                 "random_type": int(raw_shop.get("random_type", 0) or 0),
                 "refresh_data_case": str(raw_shop.get("refresh_data_case") or "None"),
                 "refresh_data_case_value": int(raw_shop.get("refresh_data_case_value", 0) or 0),
-                "random_refresh": raw_shop.get("random_refresh"),
-                "random_domain": raw_shop.get("random_domain"),
-                "local_goods": local_goods,
+                "dynamic_goods_count": dynamic_goods_count,
+                "domain_rand_goods_count": domain_rand_goods_count,
+                "position_count": position_count,
+                "owned_goods_count": owned_goods_count,
+                "today_price_goods_count": today_price_goods_count,
                 "local_goods_count": len(local_goods),
                 "updated_at": _now_ts(),
                 "updated_at_text": _now_iso(),
             }
-            shops[shop_id] = view
-            refresh_case_counts[view["refresh_data_case"]] += 1
+            shops[shop_id] = overview
+            refresh_case_counts[overview["refresh_data_case"]] += 1
 
             if local_goods:
-                queryable_shops[shop_id] = view
+                queryable_shops[shop_id] = {
+                    **overview,
+                    "local_goods": local_goods,
+                }
                 for goods in local_goods:
                     key = f"{shop_id}::{goods['goods_id']}"
                     goods_index[key] = {
@@ -1212,6 +1271,107 @@ class ShopPriceQueryPlugin(PluginBase):
             )
         return derived
 
+    def _build_domainshop_summary(self) -> dict[str, Any]:
+        domainshops: list[dict[str, Any]] = []
+        total_goods_count = 0
+        total_owned_goods_count = 0
+        total_today_price_goods_count = 0
+        total_holding_quantity = 0
+
+        for shop_id in sorted(self._queryable_shops.keys(), key=_sort_key_by_numeric_tail):
+            shop = dict(self._queryable_shops.get(shop_id) or {})
+            normalized_shop_id = str(shop.get("shop_id") or shop_id or "").strip()
+            if not normalized_shop_id.startswith("domainshop_page_"):
+                continue
+
+            refresh_case = str(shop.get("refresh_data_case") or "")
+            domain_rand_goods_count = int(shop.get("domain_rand_goods_count", 0) or 0)
+            local_goods = list(shop.get("local_goods") or [])
+            if not local_goods and refresh_case != "RandomDomain" and domain_rand_goods_count <= 0:
+                continue
+
+            domainshop_id = _infer_domainshop_id_from_shop_id(normalized_shop_id)
+            domain_channel = dict(self._domain_channels.get(domainshop_id) or {})
+            domain_snapshot = dict(self._domain_snapshots.get(domainshop_id) or {})
+            channel_levels = dict(domain_channel.get("channels") or {})
+            channel_ids = sorted(channel_levels.keys(), key=_sort_key_by_numeric_tail)
+
+            goods_payload: list[dict[str, Any]] = []
+            holding_quantity_total = 0
+            owned_goods_count = 0
+            today_price_goods_count = 0
+            for raw_goods in sorted(
+                local_goods,
+                key=lambda item: _sort_key_by_numeric_tail(str(item.get("goods_id") or "")),
+            ):
+                history_prices = [int(value) for value in (raw_goods.get("history_prices") or [])]
+                holding_quantity = int(raw_goods.get("holding_quantity", raw_goods.get("quantity", 0)) or 0)
+                holding_avg_price = int(raw_goods.get("holding_avg_price", raw_goods.get("avg_price", 0)) or 0)
+                has_today_price = bool(raw_goods.get("has_today_price")) or bool(history_prices)
+                today_price = int(raw_goods.get("today_price", history_prices[0] if history_prices else 0) or 0)
+                is_owned = bool(raw_goods.get("is_owned")) or holding_quantity > 0
+                history_price_count = int(
+                    raw_goods.get("history_price_count", len(history_prices)) or len(history_prices)
+                )
+
+                goods_payload.append(
+                    {
+                        "goods_id": str(raw_goods.get("goods_id") or ""),
+                        "goods_template_id": str(raw_goods.get("goods_template_id") or ""),
+                        "today_price": today_price,
+                        "has_today_price": has_today_price,
+                        "holding_quantity": holding_quantity,
+                        "holding_avg_price": holding_avg_price,
+                        "is_owned": is_owned,
+                        "history_prices": history_prices,
+                        "history_price_count": history_price_count,
+                    }
+                )
+
+                holding_quantity_total += holding_quantity
+                if is_owned:
+                    owned_goods_count += 1
+                if has_today_price:
+                    today_price_goods_count += 1
+
+            goods_count = len(goods_payload)
+            total_goods_count += goods_count
+            total_owned_goods_count += owned_goods_count
+            total_today_price_goods_count += today_price_goods_count
+            total_holding_quantity += holding_quantity_total
+
+            domainshops.append(
+                {
+                    "domainshop_id": domainshop_id,
+                    "shop_id": normalized_shop_id,
+                    "shop_kind": _infer_domainshop_kind_from_shop_id(normalized_shop_id),
+                    "refresh_data_case": refresh_case,
+                    "refresh_data_case_value": int(shop.get("refresh_data_case_value", 0) or 0),
+                    "version": str(domain_snapshot.get("version") or domain_channel.get("version") or ""),
+                    "channel_ids": channel_ids,
+                    "channel_levels": channel_levels,
+                    "channel_count": len(channel_ids),
+                    "goods_count": goods_count,
+                    "domain_rand_goods_count": domain_rand_goods_count,
+                    "position_count": int(shop.get("position_count", 0) or 0),
+                    "owned_goods_count": owned_goods_count,
+                    "today_price_goods_count": today_price_goods_count,
+                    "holding_quantity_total": holding_quantity_total,
+                    "goods": goods_payload,
+                }
+            )
+
+        return {
+            "generated_at": _now_ts(),
+            "generated_at_text": _now_iso(),
+            "domainshop_count": len(domainshops),
+            "goods_count": total_goods_count,
+            "owned_goods_count": total_owned_goods_count,
+            "today_price_goods_count": total_today_price_goods_count,
+            "holding_quantity_total": total_holding_quantity,
+            "domainshops": domainshops,
+        }
+
     def _serialize_shops(self) -> list[dict[str, Any]]:
         return [self._shops[key] for key in sorted(self._shops.keys())]
 
@@ -1219,10 +1379,33 @@ class ShopPriceQueryPlugin(PluginBase):
         return [self._queryable_shops[key] for key in sorted(self._queryable_shops.keys())]
 
     def _serialize_goods_index(self) -> list[dict[str, Any]]:
-        return [self._goods_index[key] for key in sorted(self._goods_index.keys())]
+        entries: list[dict[str, Any]] = []
+        for key in sorted(self._goods_index.keys()):
+            goods = self._goods_index[key]
+            entries.append(
+                {
+                    "key": str(goods.get("key") or key),
+                    "shop_id": str(goods.get("shop_id") or ""),
+                    "goods_id": str(goods.get("goods_id") or ""),
+                    "goods_template_id": str(goods.get("goods_template_id") or ""),
+                    "today_price": int(goods.get("today_price", 0) or 0),
+                    "has_today_price": bool(goods.get("has_today_price")),
+                    "avg_price": int(goods.get("avg_price", 0) or 0),
+                    "quantity": int(goods.get("quantity", 0) or 0),
+                    "holding_avg_price": int(goods.get("holding_avg_price", 0) or 0),
+                    "holding_quantity": int(goods.get("holding_quantity", 0) or 0),
+                    "is_owned": bool(goods.get("is_owned")),
+                    "history_price_count": int(goods.get("history_price_count", 0) or 0),
+                }
+            )
+        return entries
+
+    def get_domainshop_summary(self) -> dict[str, Any]:
+        return self._build_domainshop_summary()
 
     def get_state(self) -> dict[str, Any]:
         derived_domains = self._build_domain_candidates()
+        domainshop_summary = self._build_domainshop_summary()
         return {
             "plugin": self.name,
             "generated_at": _now_ts(),
@@ -1235,6 +1418,7 @@ class ShopPriceQueryPlugin(PluginBase):
             ],
             "domain_version_records": list(self._domain_version_records),
             "derived_domains": derived_domains,
+            "domainshop_summary": domainshop_summary,
             "shop_group_conditions": list(self._shop_group_conditions),
             "shops": self._serialize_shops(),
             "queryable_shops": self._serialize_queryable_shops(),
@@ -1252,6 +1436,7 @@ class ShopPriceQueryPlugin(PluginBase):
                 for key in sorted(self._domain_channels.keys())
             ],
             "last_shop_sync_parse_meta": self._last_shop_sync_parse_meta,
+            "last_shop_sync_feedback": self._last_shop_sync_feedback,
             "refresh_case_counts": [
                 {"case": key, "count": int(value)}
                 for key, value in sorted(self._refresh_case_counts.items())
@@ -1273,6 +1458,19 @@ class ShopPriceQueryPlugin(PluginBase):
                 "shop_count": len(self._shops),
                 "queryable_shop_count": len(self._queryable_shops),
                 "goods_count": len(self._goods_index),
+                "domainshop_count": int(domainshop_summary.get("domainshop_count", 0) or 0),
+                "domainshop_goods_count": int(domainshop_summary.get("goods_count", 0) or 0),
+                "domainshop_owned_goods_count": int(domainshop_summary.get("owned_goods_count", 0) or 0),
+                "domainshop_holding_quantity_total": int(domainshop_summary.get("holding_quantity_total", 0) or 0),
+                "today_price_goods_count": sum(
+                    1 for goods in self._goods_index.values() if bool(goods.get("has_today_price"))
+                ),
+                "owned_goods_count": sum(
+                    1 for goods in self._goods_index.values() if bool(goods.get("is_owned"))
+                ),
+                "domain_rand_goods_count": sum(
+                    int(shop.get("domain_rand_goods_count", 0) or 0) for shop in self._shops.values()
+                ),
                 "bound_domain_count": len(self._domain_shop_bindings),
                 "current_domain_id": self._current_domain_id,
                 "last_shop_sync_parse_source": str(
@@ -1457,6 +1655,16 @@ class ShopPriceQueryPlugin(PluginBase):
         }:
             structured_event = self._handle_structured_message(int(msgid), body)
             self._push_event(structured_event)
+
+        if int(msgid) == MSG_ID_SC_SHOP_SYNC:
+            self._last_shop_sync_feedback = {
+                "msgid": int(msgid),
+                "message_name": self._message_name(int(msgid)),
+                "received_at": _now_ts(),
+                "received_at_text": _now_iso(),
+                "structured_event": dict(structured_event) if isinstance(structured_event, dict) else None,
+                "raw_message": dict(raw_entry) if isinstance(raw_entry, dict) else None,
+            }
 
         self._notify_waiters(int(msgid), structured_event, raw_entry)
 

@@ -133,6 +133,13 @@ def create_app(session_manager: EndfieldSessionManager) -> FastAPI:
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.get("/api/plugins/shop-price-query/domainshops")
+    async def get_shop_price_domainshops() -> dict[str, object]:
+        try:
+            return await session_manager.get_shop_price_domainshops()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.post("/api/plugins/shop-price-query/domain-development/read-version")
     async def read_domain_development_version(
         payload: DomainDevelopmentReadVersionRequest,

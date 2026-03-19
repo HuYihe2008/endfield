@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from main import EndfieldClient
-from plugins import BlueprintQueryPlugin, PluginManager
+from plugins import BlueprintQueryPlugin, PluginManager, ShopPriceQueryPlugin
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,7 @@ class SessionState:
     error: Optional[str] = None
     available_plugins: list[dict[str, Any]] = field(default_factory=list)
     last_blueprint_query: Optional[dict[str, Any]] = None
+    last_shop_price_state: Optional[dict[str, Any]] = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -103,6 +104,7 @@ class EndfieldSessionManager:
                 skip_config=bool(skip_config),
                 available_plugins=[],
                 last_blueprint_query=self._state.last_blueprint_query,
+                last_shop_price_state=self._state.last_shop_price_state,
             )
 
             self._client = EndfieldClient(
@@ -173,8 +175,7 @@ class EndfieldSessionManager:
                 grant_code=client._u8_result.grant_code if client._u8_result else "",
             )
 
-            self._plugin_manager = PluginManager(client._tcp_client)
-            self._plugin_manager.register(BlueprintQueryPlugin(client._tcp_client))
+            self._plugin_manager = client.init_plugins()
 
             self._set_state(
                 stage="ready",
@@ -221,6 +222,126 @@ class EndfieldSessionManager:
         self._state.last_blueprint_query = result
         return result
 
+    def _get_shop_price_plugin(self) -> ShopPriceQueryPlugin:
+        if not self._state.ready or not self._plugin_manager:
+            raise RuntimeError("会话未就绪，请先完成登录")
+
+        plugin = self._plugin_manager.get("shop-price-query")
+        if not isinstance(plugin, ShopPriceQueryPlugin):
+            raise RuntimeError("shop-price-query plugin 未初始化")
+        return plugin
+
+    async def get_shop_price_state(self) -> dict[str, Any]:
+        plugin = self._get_shop_price_plugin()
+        state = plugin.get_state()
+        self._state.last_shop_price_state = state
+        return state
+
+    async def read_domain_development_versions(
+        self,
+        chapter_id: Optional[str] = None,
+        *,
+        timeout: float = 10.0,
+    ) -> dict[str, Any]:
+        plugin = self._get_shop_price_plugin()
+        result = await plugin.read_domain_development_versions(chapter_id, timeout=timeout)
+        self._state.last_shop_price_state = result.get("state")
+        return result
+
+    async def observe_domain_development(self, *, timeout: float = 10.0) -> dict[str, Any]:
+        plugin = self._get_shop_price_plugin()
+        result = await plugin.observe_domain_development(timeout=timeout)
+        self._state.last_shop_price_state = result.get("state")
+        return result
+
+    async def change_current_domain(self, domain_id: str, *, timeout: float = 10.0) -> dict[str, Any]:
+        plugin = self._get_shop_price_plugin()
+        result = await plugin.change_current_domain(domain_id, timeout=timeout)
+        self._state.last_shop_price_state = result.get("state")
+        return result
+
+    async def enter_shop(
+        self,
+        domain_id: Optional[str] = None,
+        *,
+        timeout: float = 10.0,
+    ) -> dict[str, Any]:
+        plugin = self._get_shop_price_plugin()
+        result = await plugin.enter_shop(domain_id, timeout=timeout)
+        self._state.last_shop_price_state = result.get("state")
+        return result
+
+    async def observe_shop_sync(self, *, timeout: float = 10.0) -> dict[str, Any]:
+        plugin = self._get_shop_price_plugin()
+        result = await plugin.observe_shop_sync(timeout=timeout)
+        self._state.last_shop_price_state = result.get("state")
+        return result
+
+    async def observe_inbound_messages(
+        self,
+        *,
+        timeout: float = 10.0,
+        msgid: Optional[int] = None,
+    ) -> dict[str, Any]:
+        plugin = self._get_shop_price_plugin()
+        result = await plugin.observe_inbound_messages(timeout=timeout, msgid=msgid)
+        self._state.last_shop_price_state = result.get("state")
+        return result
+
+    async def query_friend_goods_price(
+        self,
+        shop_id: str,
+        goods_id: str,
+        role_ids: list[int],
+        *,
+        timeout: float = 10.0,
+    ) -> dict[str, Any]:
+        plugin = self._get_shop_price_plugin()
+        result = await plugin.query_friend_goods_price(
+            shop_id,
+            goods_id,
+            role_ids,
+            timeout=timeout,
+        )
+        self._state.last_shop_price_state = result.get("state")
+        return result
+
+    async def query_friend_shop(
+        self,
+        friend_role_id: int,
+        shop_ids: list[str],
+        *,
+        timeout: float = 10.0,
+    ) -> dict[str, Any]:
+        plugin = self._get_shop_price_plugin()
+        result = await plugin.query_friend_shop(
+            friend_role_id,
+            shop_ids,
+            timeout=timeout,
+        )
+        self._state.last_shop_price_state = result.get("state")
+        return result
+
+    async def update_domain_shop_binding(
+        self,
+        domain_id: str,
+        shop_id: str,
+        *,
+        channel_id: Optional[str] = None,
+        preferred: bool = True,
+        note: Optional[str] = None,
+    ) -> dict[str, Any]:
+        plugin = self._get_shop_price_plugin()
+        result = await plugin.update_domain_shop_binding(
+            domain_id,
+            shop_id,
+            channel_id=channel_id,
+            preferred=preferred,
+            note=note,
+        )
+        self._state.last_shop_price_state = result.get("state")
+        return result
+
     async def close(self) -> dict[str, Any]:
         async with self._lock:
             await self._close_unlocked(reset_state=True)
@@ -247,4 +368,8 @@ class EndfieldSessionManager:
 
         if reset_state:
             last_blueprint_query = self._state.last_blueprint_query
-            self._state = SessionState(last_blueprint_query=last_blueprint_query)
+            last_shop_price_state = self._state.last_shop_price_state
+            self._state = SessionState(
+                last_blueprint_query=last_blueprint_query,
+                last_shop_price_state=last_shop_price_state,
+            )

@@ -146,6 +146,70 @@ def iter_fields(data: bytes) -> Iterator[tuple[int, int, bytes | int]]:
             raise ValueError(f"unsupported wire type: {wire}")
 
 
+def _lz4_decompress_block(data: bytes) -> bytes:
+    if not data:
+        return b""
+
+    source = memoryview(data)
+    source_len = len(source)
+    source_index = 0
+    out = bytearray()
+
+    while source_index < source_len:
+        token = int(source[source_index])
+        source_index += 1
+
+        literal_len = token >> 4
+        if literal_len == 15:
+            while True:
+                if source_index >= source_len:
+                    raise ValueError("lz4 literal length overflow")
+                extra = int(source[source_index])
+                source_index += 1
+                literal_len += extra
+                if extra != 0xFF:
+                    break
+
+        literal_end = source_index + literal_len
+        if literal_end > source_len:
+            raise ValueError("lz4 literal overflow")
+        out.extend(source[source_index:literal_end])
+        source_index = literal_end
+
+        if source_index >= source_len:
+            break
+
+        if source_index + 2 > source_len:
+            raise ValueError("lz4 missing match offset")
+        offset = int(source[source_index]) | (int(source[source_index + 1]) << 8)
+        source_index += 2
+        if offset <= 0 or offset > len(out):
+            raise ValueError("lz4 invalid match offset")
+
+        match_len = token & 0x0F
+        if match_len == 15:
+            while True:
+                if source_index >= source_len:
+                    raise ValueError("lz4 match length overflow")
+                extra = int(source[source_index])
+                source_index += 1
+                match_len += extra
+                if extra != 0xFF:
+                    break
+        match_len += 4
+
+        while match_len > 0:
+            chunk_len = min(match_len, offset)
+            chunk_start = len(out) - offset
+            chunk = out[chunk_start : chunk_start + chunk_len]
+            if not chunk:
+                raise ValueError("lz4 empty match chunk")
+            out.extend(chunk)
+            match_len -= len(chunk)
+
+    return bytes(out)
+
+
 def _to_int(value: Any, default: int) -> int:
     try:
         if value is None or value == "":
@@ -1271,7 +1335,47 @@ class TCPClient:
             client_ts,
         )
 
+    def _maybe_decompress_session_body(
+        self,
+        head_info: dict[str, Any],
+        body: bytes,
+    ) -> tuple[bytes, dict[str, Any]]:
+        if not bool(head_info.get("is_compress")) or not body:
+            return body, {}
+
+        errors: list[str] = []
+        for method, decoder in (
+            ("lz4-block", _lz4_decompress_block),
+            ("zlib", lambda raw: zlib.decompress(raw)),
+            ("raw-deflate", lambda raw: zlib.decompress(raw, -zlib.MAX_WBITS)),
+            ("gzip", lambda raw: zlib.decompress(raw, zlib.MAX_WBITS | 16)),
+        ):
+            try:
+                decompressed = decoder(body)
+            except Exception as exc:
+                errors.append(f"{method}:{exc}")
+                continue
+
+            return decompressed, {
+                "compressed_body_len": len(body),
+                "decompressed_body_len": len(decompressed),
+                "decompress_method": method,
+                "decompress_error": "",
+            }
+
+        return body, {
+            "compressed_body_len": len(body),
+            "decompressed_body_len": 0,
+            "decompress_method": "",
+            "decompress_error": "; ".join(errors[:3]),
+        }
+
     def _handle_session_payload(self, head_info: dict[str, Any], body: bytes, *, head_len: int) -> None:
+        head_info = dict(head_info)
+        body, decompress_meta = self._maybe_decompress_session_body(head_info, body)
+        if decompress_meta:
+            head_info.update(decompress_meta)
+
         msgid = int(head_info.get("msgid", 0) or 0)
         down_seqid = int(head_info.get("down_seqid", 0) or 0)
         if down_seqid:
@@ -1292,6 +1396,21 @@ class TCPClient:
                 head_info.get("checksum"),
                 self._summarize_proto_fields(body),
             )
+            if head_info.get("decompress_method"):
+                logger.info(
+                    "[TCP] 服务端消息已解压: msgid=%s, method=%s, compressed_body_len=%s, decompressed_body_len=%s",
+                    msgid,
+                    head_info.get("decompress_method"),
+                    head_info.get("compressed_body_len"),
+                    head_info.get("decompressed_body_len"),
+                )
+            elif head_info.get("decompress_error"):
+                logger.warning(
+                    "[TCP] 服务端压缩消息解压失败: msgid=%s, compressed_body_len=%s, error=%s",
+                    msgid,
+                    head_info.get("compressed_body_len"),
+                    head_info.get("decompress_error"),
+                )
 
         if msgid != MSG_ID_SC_ERROR:
             self._notify_message_waiters(msgid, head_info, body)

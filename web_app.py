@@ -32,6 +32,51 @@ class BlueprintQueryRequest(BaseModel):
     timeout: float = Field(default=10.0, ge=1.0, le=60.0)
 
 
+class DomainDevelopmentReadVersionRequest(BaseModel):
+    chapter_id: Optional[str] = None
+    timeout: float = Field(default=10.0, ge=1.0, le=60.0)
+
+
+class ShopBeginRequest(BaseModel):
+    domain_id: Optional[str] = None
+    timeout: float = Field(default=10.0, ge=1.0, le=60.0)
+
+
+class ObserveInboundRequest(BaseModel):
+    timeout: float = Field(default=10.0, ge=1.0, le=60.0)
+
+
+class ObserveMessagesRequest(BaseModel):
+    timeout: float = Field(default=10.0, ge=1.0, le=60.0)
+    msgid: Optional[int] = Field(default=None, ge=1)
+
+
+class DomainSwitchRequest(BaseModel):
+    domain_id: str = Field(..., min_length=1)
+    timeout: float = Field(default=10.0, ge=1.0, le=60.0)
+
+
+class ShopFriendGoodsPriceRequest(BaseModel):
+    shop_id: str = Field(..., min_length=1)
+    goods_id: str = Field(..., min_length=1)
+    role_ids: list[int] = Field(default_factory=list)
+    timeout: float = Field(default=10.0, ge=1.0, le=60.0)
+
+
+class ShopFriendShopRequest(BaseModel):
+    friend_role_id: int = Field(..., ge=1)
+    shop_ids: list[str] = Field(default_factory=list)
+    timeout: float = Field(default=10.0, ge=1.0, le=60.0)
+
+
+class DomainShopBindingRequest(BaseModel):
+    domain_id: str = Field(..., min_length=1)
+    shop_id: str = Field(..., min_length=1)
+    channel_id: Optional[str] = None
+    preferred: bool = True
+    note: Optional[str] = None
+
+
 def create_app(session_manager: EndfieldSessionManager) -> FastAPI:
     app = FastAPI(title="Endfield Experimental WebUI", version="0.1.0")
 
@@ -77,6 +122,109 @@ def create_app(session_manager: EndfieldSessionManager) -> FastAPI:
             return await session_manager.query_shared_blueprint(
                 payload.share_code,
                 timeout=payload.timeout,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/plugins/shop-price-query/state")
+    async def get_shop_price_state() -> dict[str, object]:
+        try:
+            return await session_manager.get_shop_price_state()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/plugins/shop-price-query/domain-development/read-version")
+    async def read_domain_development_version(
+        payload: DomainDevelopmentReadVersionRequest,
+    ) -> dict[str, object]:
+        try:
+            return await session_manager.read_domain_development_versions(
+                payload.chapter_id,
+                timeout=payload.timeout,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/plugins/shop-price-query/domain-development/observe")
+    async def observe_domain_development(
+        payload: ObserveInboundRequest,
+    ) -> dict[str, object]:
+        try:
+            return await session_manager.observe_domain_development(timeout=payload.timeout)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/plugins/shop-price-query/domain/switch")
+    async def switch_domain(payload: DomainSwitchRequest) -> dict[str, object]:
+        try:
+            return await session_manager.change_current_domain(
+                payload.domain_id,
+                timeout=payload.timeout,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/plugins/shop-price-query/shop-begin")
+    async def shop_begin(payload: ShopBeginRequest) -> dict[str, object]:
+        try:
+            return await session_manager.enter_shop(
+                payload.domain_id,
+                timeout=payload.timeout,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/plugins/shop-price-query/shop/observe")
+    async def observe_shop(payload: ObserveInboundRequest) -> dict[str, object]:
+        try:
+            return await session_manager.observe_shop_sync(timeout=payload.timeout)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/plugins/shop-price-query/messages/observe")
+    async def observe_messages(payload: ObserveMessagesRequest) -> dict[str, object]:
+        try:
+            return await session_manager.observe_inbound_messages(
+                timeout=payload.timeout,
+                msgid=payload.msgid,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/plugins/shop-price-query/friend-goods-price")
+    async def query_friend_goods_price(
+        payload: ShopFriendGoodsPriceRequest,
+    ) -> dict[str, object]:
+        try:
+            return await session_manager.query_friend_goods_price(
+                payload.shop_id,
+                payload.goods_id,
+                payload.role_ids,
+                timeout=payload.timeout,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/plugins/shop-price-query/friend-shop")
+    async def query_friend_shop(payload: ShopFriendShopRequest) -> dict[str, object]:
+        try:
+            return await session_manager.query_friend_shop(
+                payload.friend_role_id,
+                payload.shop_ids,
+                timeout=payload.timeout,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/plugins/shop-price-query/domain-binding")
+    async def bind_domain_shop(payload: DomainShopBindingRequest) -> dict[str, object]:
+        try:
+            return await session_manager.update_domain_shop_binding(
+                payload.domain_id,
+                payload.shop_id,
+                channel_id=payload.channel_id,
+                preferred=payload.preferred,
+                note=payload.note,
             )
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

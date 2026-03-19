@@ -11,7 +11,7 @@ from typing import Any, Optional
 from config.get_config import EndfieldConfigFetcher
 from login.passport_login import PassportLogin, PassportLoginResult
 from login.u8_login import U8Login, U8LoginResult
-from plugins import BlueprintQueryPlugin, PluginManager
+from plugins import BlueprintQueryPlugin, PluginManager, ShopPriceQueryPlugin
 from tcp.srsa_bridge import SRSABridge
 from tcp.tcp import (
     DEFAULT_FIRST_HEARTBEAT_DELAY_MS,
@@ -204,8 +204,8 @@ class EndfieldClient:
 
         logger.info(f"[TCP] 登录成功！server_time: {login_response.server_time}")
         logger.info(f"[TCP] uid: {login_response.uid}")
-        await self._tcp_client.start_session()
         self.init_plugins()
+        await self._tcp_client.start_session()
         self._login_response = login_response
         logger.info("[TCP] 长连接保持已启动")
 
@@ -219,6 +219,7 @@ class EndfieldClient:
         if self._plugin_manager is None:
             manager = PluginManager(self._tcp_client)
             manager.register(BlueprintQueryPlugin(self._tcp_client))
+            manager.register(ShopPriceQueryPlugin(self._tcp_client))
             self._plugin_manager = manager
             logger.info("[Plugin] 已注册插件：%s", ", ".join(self._plugin_manager.names()))
 

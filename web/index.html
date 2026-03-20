@@ -30,21 +30,21 @@
       min-height: 100vh;
       overflow-x: hidden;
     }
-    .page { max-width: 1400px; margin: 0 auto; padding: 28px 18px 40px; }
+    .page { max-width: 1560px; margin: 0 auto; padding: 28px 18px 40px; }
     .hero { margin-bottom: 20px; }
     .eyebrow { color: var(--accent); font-size: 12px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
     h1 { margin: 8px 0 10px; font-size: clamp(28px, 5vw, 48px); line-height: 1.05; }
     .hero p { margin: 0; max-width: 920px; color: var(--sub); line-height: 1.7; }
     .grid { display: grid; gap: 18px; align-items: start; }
     .hero-grid { grid-template-columns: 1.1fr .9fr; align-items: start; }
-    .main-grid { grid-template-columns: .95fr 1.05fr; margin-top: 18px; align-items: start; }
+    .main-grid { grid-template-columns: 1fr; margin-top: 18px; align-items: start; }
     .card { background: var(--panel); border: 1px solid var(--line); border-radius: 24px; padding: 20px; box-shadow: var(--shadow); backdrop-filter: blur(8px); min-width: 0; align-self: start; }
     .card h2, .card h3 { margin: 0 0 14px; }
     .card h3 { font-size: 18px; }
     .muted { color: var(--sub); }
     .meta-grid, .form-grid, .step-grid, .stats-grid { display: grid; gap: 12px; }
     .meta-grid, .stats-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    .form-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .form-grid.two { grid-template-columns: 1fr; }
     .field { display: grid; gap: 6px; }
     .field label { font-size: 13px; color: var(--sub); }
     input[type="text"], input[type="number"], textarea, select { width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; font: inherit; background: rgba(255,255,255,0.92); color: var(--ink); }
@@ -67,9 +67,27 @@
     .qrcode img { max-width: 100%; display: block; }
     .step-grid { grid-template-columns: 1fr; }
     .step { border: 1px solid var(--line); border-radius: 20px; padding: 18px; background: rgba(255,255,255,.58); min-width: 0; overflow: hidden; }
-    .step-title { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
-    .step-num { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: rgba(31,41,51,.08); font-weight: 700; }
-    .domainshop-cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); align-items: start; }
+    .is-hidden { display: none !important; }
+    .path-shell { display: grid; gap: 18px; margin-top: 16px; }
+    .path-step { padding: 22px; border-radius: 22px; background: linear-gradient(180deg, rgba(255,255,255,.78), rgba(255,255,255,.6)); }
+    .path-step.primary-step { border-color: rgba(210, 101, 48, 0.2); }
+    .path-step.secondary-step { border-color: rgba(13, 148, 136, 0.18); }
+    .step-title { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 14px; }
+    .step-title > div:last-child { min-width: 0; }
+    .step-title h3 { margin: 0 0 4px; }
+    .step-num { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(135deg, rgba(210, 101, 48, 0.14), rgba(13, 148, 136, 0.12)); font-weight: 800; flex: 0 0 auto; }
+    .step-stack { display: grid; gap: 12px; }
+    .step-stack.two-col { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+    .step-stack.three-col { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
+    .step-block { border: 1px solid var(--line); border-radius: 18px; padding: 14px; background: rgba(255,255,255,.72); min-width: 0; }
+    .step-block.wide { grid-column: 1 / -1; }
+    .step-block-title { margin: 0 0 10px; font-size: 13px; font-weight: 800; letter-spacing: .02em; color: var(--ink); }
+    .step-fields { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+    .path-stats { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+    .step-actions { margin-top: 12px; }
+    .result-cluster { display: grid; gap: 12px; }
+    select[multiple] { min-height: 216px; }
+    .domainshop-cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); align-items: start; }
     .domainshop-card { border: 1px solid var(--line); border-radius: 18px; padding: 14px; background: rgba(255,255,255,.74); min-width: 0; }
     .domainshop-card h4 { margin: 0 0 8px; font-size: 15px; }
     .domainshop-card .sub { color: var(--sub); font-size: 12px; line-height: 1.5; margin-bottom: 10px; word-break: break-all; }
@@ -92,7 +110,14 @@
     .goods-price-chip.today { border-color: rgba(13, 148, 136, 0.25); background: rgba(13, 148, 136, 0.08); }
     .goods-price-chip .label { font-size: 11px; color: var(--sub); margin-bottom: 4px; }
     .goods-price-chip .value { font-size: 14px; font-weight: 700; }
-    @media (max-width: 1080px) { .hero-grid, .main-grid, .form-grid.two, .meta-grid, .stats-grid { grid-template-columns: 1fr; } }
+    .result-grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 14px; }
+    .result-panel { border: 1px solid var(--line); border-radius: 16px; padding: 12px; background: rgba(255,255,255,.6); min-width: 0; }
+    .result-panel.wide { grid-column: 1 / -1; }
+    .result-panel h4 { margin: 0 0 6px; font-size: 14px; }
+    .result-panel .hint { margin: 0 0 10px; color: var(--sub); font-size: 12px; line-height: 1.5; }
+    .result-panel .pre { max-height: 260px; }
+    @media (max-width: 1200px) { .step-stack.two-col, .step-stack.three-col, .result-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 1080px) { .hero-grid, .main-grid, .form-grid.two, .meta-grid, .stats-grid, .result-grid { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
@@ -153,29 +178,40 @@
       <div class="card">
         <h2>调度终端路径</h2>
         <div id="query-path-note" class="note blue">推荐路径：登录 -> 主动获取地区版本 -> 直接查看整理后的 domainshop 结果；只有在缺少商店快照时，才继续等待 `SC_SHOP_SYNC(1352)`。</div>
-        <div class="step-grid" style="margin-top:16px;">
-          <section class="step">
+        <div class="path-shell">
+          <section class="step path-step primary-step">
             <div class="step-title"><div class="step-num">1</div><div><h3>地区建设</h3><div class="muted">优先在模拟程序内主动发送 `CS_DOMAIN_DEVELOPMENT_READ_VERSION_INFO(1553)`。</div></div></div>
-            <div class="stats-grid">
-              <div class="meta-item"><div class="label">地区候选数</div><div class="value" id="domain-known-count">0</div></div>
-              <div class="meta-item"><div class="label">地区建设记录</div><div class="value" id="domain-record-count">0</div></div>
-              <div class="meta-item"><div class="label">版本记录</div><div class="value" id="domain-version-count">0</div></div>
+            <div class="step-stack two-col">
+              <div class="step-block">
+                <div class="step-block-title">地区概览</div>
+                <div class="stats-grid path-stats">
+                  <div class="meta-item"><div class="label">地区候选数</div><div class="value" id="domain-known-count">0</div></div>
+                  <div class="meta-item"><div class="label">地区建设记录</div><div class="value" id="domain-record-count">0</div></div>
+                  <div class="meta-item"><div class="label">版本记录</div><div class="value" id="domain-version-count">0</div></div>
+                </div>
+              </div>
+              <div class="step-block">
+                <div class="step-block-title">读取参数与操作</div>
+                <div class="form-grid step-fields">
+                  <div class="field"><label for="domain-read-chapter-id">读取地区 chapterId / domainId（可选）</label><input id="domain-read-chapter-id" type="text" placeholder="留空则按当前上下文或已知地区读取"></div>
+                  <div class="field"><label for="domain-read-timeout">读取超时（秒）</label><input id="domain-read-timeout" type="number" min="1" max="60" value="10"></div>
+                </div>
+                <div class="actions step-actions">
+                  <button class="primary" type="button" id="refresh-domain-dev">主动读地区版本</button>
+                  <button class="secondary" type="button" id="observe-domain-dev">等待地区建设回包</button>
+                </div>
+              </div>
+              <div class="step-block wide">
+                <div class="step-block-title">整理结果</div>
+                <div class="note blue">这里直接展示整理后的调度终端结果。注意：卡片的商品和价格主要来自登录后缓存的 `SC_SHOP_SYNC(1352)`，主动读地区版本 `1553` 主要用于补地区列表和版本信息。</div>
+                <div id="domainshop-cards" class="domainshop-cards" style="margin-top:12px;"></div>
+                <div id="domainshop-goods-detail" class="goods-detail-panel">点击上方商品条目后，这里会展示该商品近 7 天的全部价格；其中 `[0]` 为今日价格。</div>
+                <pre id="domain-dev-result" class="pre" style="margin-top:12px;">等待整理后的 domainshop 结果...</pre>
+              </div>
             </div>
-            <div class="form-grid two" style="margin-top:12px;">
-              <div class="field"><label for="domain-read-chapter-id">读取地区 chapterId / domainId（可选）</label><input id="domain-read-chapter-id" type="text" placeholder="留空则按当前上下文或已知地区读取"></div>
-              <div class="field"><label for="domain-read-timeout">读取超时（秒）</label><input id="domain-read-timeout" type="number" min="1" max="60" value="10"></div>
-            </div>
-            <div class="actions" style="margin-top:12px;">
-              <button class="primary" type="button" id="refresh-domain-dev">主动读地区版本</button>
-              <button class="secondary" type="button" id="observe-domain-dev">等待地区建设回包</button>
-            </div>
-            <div class="note blue" style="margin-top:12px;">这里直接展示整理后的调度终端结果。注意：卡片的商品和价格主要来自登录后缓存的 `SC_SHOP_SYNC(1352)`，主动读地区版本 `1553` 主要用于补地区列表和版本信息。</div>
-            <div id="domainshop-cards" class="domainshop-cards" style="margin-top:12px;"></div>
-            <div id="domainshop-goods-detail" class="goods-detail-panel">点击上方商品条目后，这里会展示该商品近 7 天的全部价格；其中 `[0]` 为今日价格。</div>
-            <pre id="domain-dev-result" class="pre" style="margin-top:12px;">等待整理后的 domainshop 结果...</pre>
           </section>
 
-          <section class="step">
+          <section class="step is-hidden">
             <div class="step-title"><div class="step-num">2</div><div><h3>选择地区</h3><div class="muted">这里优先消费地区建设状态；如果后续进入物资调度，也会把当前频道等级和 shop version 同步回来。</div></div></div>
             <div class="form-grid two">
               <div class="field"><label for="domain-select">地区</label><select id="domain-select"></select></div>
@@ -195,7 +231,7 @@
             <pre id="domain-switch-result" class="pre" style="margin-top:12px;">等待地区切换结果...</pre>
           </section>
 
-          <section class="step">
+          <section class="step is-hidden">
             <div class="step-title"><div class="step-num">3</div><div><h3>物资调度</h3><div class="muted">优先走模拟程序：自动按当前地区尝试切上下文、预读 `1553`；如果已有 `SC_SHOP_SYNC(1352)` 就直接复用，否则等待新的 `1352`，再决定是否继续观察真实入站消息。</div></div></div>
             <div class="stats-grid">
               <div class="meta-item"><div class="label">商店总数</div><div class="value" id="shop-count">0</div></div>
@@ -224,32 +260,76 @@
             <pre id="domain-binding-result" class="pre" style="margin-top:12px;">等待地区与商店绑定结果...</pre>
           </section>
 
-          <section class="step">
-            <div class="step-title"><div class="step-num">4</div><div><h3>弹性物资调度</h3><div class="muted">从已解析的本地商店商品里选 `shopId/goodsId`，再主动发 `1115`；`1117` 则用于观察好友商店快照。</div></div></div>
-            <div class="form-grid two">
-              <div class="field"><label for="goods-select">商品</label><select id="goods-select"></select></div>
-              <div class="field"><label for="friend-goods-timeout">价格查询超时（秒）</label><input id="friend-goods-timeout" type="number" min="1" max="60" value="10"></div>
+          <section class="step path-step secondary-step">
+            <div class="step-title"><div class="step-num">2</div><div><h3>弹性物资调度</h3><div class="muted">从已解析的本地商店商品里选 `shopId/goodsId`，先查询好友列表，再直接对勾选好友发 `1115`；`1117` 则用于观察好友商店快照。</div></div></div>
+            <div class="step-stack three-col">
+              <div class="step-block">
+                <div class="step-block-title">商品与查询参数</div>
+                <div class="form-grid step-fields">
+                  <div class="field"><label for="goods-select">商品</label><select id="goods-select"></select></div>
+                  <div class="field"><label for="friend-goods-timeout">价格查询超时（秒）</label><input id="friend-goods-timeout" type="number" min="1" max="60" value="10"></div>
+                  <div class="field"><label for="manual-shop-id">shopId</label><input id="manual-shop-id" type="text" placeholder="可手动覆盖"></div>
+                  <div class="field"><label for="manual-goods-id">goodsId</label><input id="manual-goods-id" type="text" placeholder="可手动覆盖"></div>
+                </div>
+              </div>
+              <div class="step-block">
+                <div class="step-block-title">好友列表与价格查询</div>
+                <div class="form-grid step-fields">
+                  <div class="field"><label for="friend-list-select">好友列表（可多选）</label><select id="friend-list-select" multiple size="8"></select></div>
+                  <div class="field"><label for="friend-list-timeout">好友列表查询超时（秒）</label><input id="friend-list-timeout" type="number" min="1" max="60" value="10"></div>
+                </div>
+                <div class="actions step-actions">
+                  <button class="secondary" type="button" id="query-friend-list-button">获取好友列表</button>
+                </div>
+                <div class="field" style="margin-top:12px;"><label for="friend-role-ids">好友 roleIds</label><textarea id="friend-role-ids" placeholder="逗号、空格或换行分隔，例如：123456789, 987654321"></textarea></div>
+                <div class="actions step-actions">
+                  <button class="primary" type="button" id="query-friend-goods-button">查询好友商品价格</button>
+                </div>
+              </div>
+              <div class="step-block">
+                <div class="step-block-title">好友商店查询</div>
+                <div class="form-grid step-fields">
+                  <div class="field"><label for="friend-shop-role-id">friend roleId</label><input id="friend-shop-role-id" type="number" min="1" placeholder="输入好友 roleId"></div>
+                  <div class="field"><label for="friend-shop-timeout">好友商店查询超时（秒）</label><input id="friend-shop-timeout" type="number" min="1" max="60" value="10"></div>
+                </div>
+                <div class="field" style="margin-top:12px;"><label for="friend-shop-ids">shopIds</label><textarea id="friend-shop-ids" placeholder="逗号、空格或换行分隔；留空时默认使用当前选中的 shopId"></textarea></div>
+                <div class="actions step-actions">
+                  <button class="secondary" type="button" id="query-friend-shop-button">查询好友商店</button>
+                </div>
+              </div>
+              <div class="step-block wide">
+                <div class="step-block-title">结果面板</div>
+                <div class="result-cluster">
+                  <div class="result-grid">
+                    <section class="result-panel">
+                      <h4>当前商品上下文</h4>
+                      <p class="hint">当前选中的 `shopId/goodsId` 以及本地商品详情。</p>
+                      <pre id="local-goods-result" class="pre">等待本地商品详情...</pre>
+                    </section>
+                    <section class="result-panel">
+                      <h4>好友列表结果</h4>
+                      <p class="hint">`539/540` 查询后的好友列表与好友详情。</p>
+                      <pre id="friend-list-result" class="pre">等待好友列表结果...</pre>
+                    </section>
+                    <section class="result-panel">
+                      <h4>好友商品价格结果</h4>
+                      <p class="hint">`1115/1364` 返回的同一商品好友价格结果。</p>
+                      <pre id="friend-goods-price-result" class="pre">等待好友商品价格结果...</pre>
+                    </section>
+                    <section class="result-panel">
+                      <h4>好友商店结果</h4>
+                      <p class="hint">`1117/1366` 返回的好友商店快照与历史价格。</p>
+                      <pre id="friend-shop-result" class="pre">等待好友商店结果...</pre>
+                    </section>
+                    <section class="result-panel wide">
+                      <h4>调度终端摘要</h4>
+                      <p class="hint">当前客户端整理后的轻量摘要，便于快速判断状态。</p>
+                      <pre id="shop-debug-result" class="pre">等待整理后的调度终端摘要...</pre>
+                    </section>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div class="form-grid two" style="margin-top:12px;">
-              <div class="field"><label for="manual-shop-id">shopId</label><input id="manual-shop-id" type="text" placeholder="可手动覆盖"></div>
-              <div class="field"><label for="manual-goods-id">goodsId</label><input id="manual-goods-id" type="text" placeholder="可手动覆盖"></div>
-            </div>
-            <div class="field" style="margin-top:12px;"><label for="friend-role-ids">好友 roleIds</label><textarea id="friend-role-ids" placeholder="逗号、空格或换行分隔，例如：123456789, 987654321"></textarea></div>
-            <div class="actions" style="margin-top:12px;">
-              <button class="primary" type="button" id="query-friend-goods-button">查询好友商品价格</button>
-            </div>
-            <div class="form-grid two" style="margin-top:16px;">
-              <div class="field"><label for="friend-shop-role-id">friend roleId</label><input id="friend-shop-role-id" type="number" min="1" placeholder="输入好友 roleId"></div>
-              <div class="field"><label for="friend-shop-timeout">好友商店查询超时（秒）</label><input id="friend-shop-timeout" type="number" min="1" max="60" value="10"></div>
-            </div>
-            <div class="field" style="margin-top:12px;"><label for="friend-shop-ids">shopIds</label><textarea id="friend-shop-ids" placeholder="逗号、空格或换行分隔；留空时默认使用当前选中的 shopId"></textarea></div>
-            <div class="actions" style="margin-top:12px;">
-              <button class="secondary" type="button" id="query-friend-shop-button">查询好友商店</button>
-            </div>
-            <pre id="local-goods-result" class="pre" style="margin-top:12px;">等待本地商品详情...</pre>
-            <pre id="friend-goods-price-result" class="pre" style="margin-top:12px;">等待好友商品价格结果...</pre>
-            <pre id="friend-shop-result" class="pre" style="margin-top:12px;">等待好友商店结果...</pre>
-            <pre id="shop-debug-result" class="pre" style="margin-top:12px;">等待整理后的调度终端摘要...</pre>
           </section>
         </div>
 
@@ -326,6 +406,9 @@
       "domain-binding-result",
       "goods-select",
       "friend-goods-timeout",
+      "friend-list-select",
+      "friend-list-timeout",
+      "query-friend-list-button",
       "manual-shop-id",
       "manual-goods-id",
       "friend-role-ids",
@@ -335,6 +418,7 @@
       "friend-shop-ids",
       "query-friend-shop-button",
       "local-goods-result",
+      "friend-list-result",
       "domainshop-goods-detail",
       "friend-goods-price-result",
       "friend-shop-result",
@@ -758,6 +842,72 @@
           ? uiState.shopState.shops.find((item) => String(item.shop_id || "") === normalizedShopId)
           : null)
         || null;
+    }
+
+    function getFriendList(shopState) {
+      const state = shopState || uiState.shopState || {};
+      return Array.isArray(state.friend_list) ? state.friend_list : [];
+    }
+
+    function getSelectedFriendRoleIds() {
+      if (!els["friend-list-select"]) {
+        return [];
+      }
+      return Array.from(els["friend-list-select"].selectedOptions || [])
+        .map((option) => Number(option.value || 0))
+        .filter((value) => Number.isInteger(value) && value > 0);
+    }
+
+    function syncSelectedFriendInputs() {
+      const roleIds = getSelectedFriendRoleIds();
+      if (!roleIds.length) {
+        return;
+      }
+      els["friend-role-ids"].value = roleIds.join(", ");
+      els["friend-shop-role-id"].value = String(roleIds[0]);
+    }
+
+    function renderFriendList(shopState) {
+      const selectEl = els["friend-list-select"];
+      if (!selectEl) {
+        return;
+      }
+
+      const friends = getFriendList(shopState);
+      const previousSelected = new Set(getSelectedFriendRoleIds().map((value) => String(value)));
+      const manualSelected = new Set(parseIntList(els["friend-role-ids"].value).map((value) => String(value)));
+      const preferredSelected = previousSelected.size ? previousSelected : manualSelected;
+      const signature = JSON.stringify(friends);
+      if (uiState.renderCache["select:friend-list"] === signature) {
+        return;
+      }
+      uiState.renderCache["select:friend-list"] = signature;
+
+      selectEl.innerHTML = "";
+      if (!friends.length) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "暂无好友";
+        option.disabled = true;
+        selectEl.appendChild(option);
+        return;
+      }
+
+      for (const friend of friends) {
+        const roleId = String(friend.role_id || "");
+        const option = document.createElement("option");
+        option.value = roleId;
+        option.textContent = [
+          friend.remark_name || friend.name || roleId,
+          "role " + roleId,
+          friend.online ? "在线" : "离线",
+          "Lv." + (friend.adventure_level || 0),
+          friend.short_id ? ("#" + friend.short_id) : ""
+        ].filter(Boolean).join(" | ");
+        option.selected = preferredSelected.has(roleId) || (!preferredSelected.size && friends.length === 1);
+        selectEl.appendChild(option);
+      }
+      syncSelectedFriendInputs();
     }
 
     function buildDomainshopApiPayload(source) {
@@ -1198,6 +1348,7 @@
       renderDomainSelection(shopState);
       renderFlowState(shopState);
       renderShopSelection(shopState);
+      renderFriendList(shopState);
       renderDomainshopCards(shopState);
       renderDomainshopGoodsDetail(shopState);
       renderShopSyncRaw(shopState);
@@ -1445,10 +1596,34 @@
       }
     }
 
+    async function queryFriendList() {
+      const timeout = asNumber(els["friend-list-timeout"].value, 10);
+      try {
+        const result = await postJson("/api/plugins/shop-price-query/friend-list/query", {
+          timeout: timeout,
+          info_type: 0
+        });
+        setRawApi("friend-list/query", result);
+        if (result.state) {
+          setRawState("state:friend-list/query", result.state);
+        }
+        setPre("friend-list-result", result);
+        if (result.state) {
+          renderShopState(result.state);
+        }
+      } catch (error) {
+        setPre("friend-list-result", { error: String(error.message || error) });
+        statusError(String(error.message || error));
+      }
+    }
+
     async function queryFriendGoodsPrice() {
       const shopId = String(els["manual-shop-id"].value || "").trim();
       const goodsId = String(els["manual-goods-id"].value || "").trim();
-      const roleIds = parseIntList(els["friend-role-ids"].value);
+      const roleIds = Array.from(new Set([
+        ...getSelectedFriendRoleIds(),
+        ...parseIntList(els["friend-role-ids"].value)
+      ]));
       const timeout = asNumber(els["friend-goods-timeout"].value, 10);
       if (!shopId || !goodsId) {
         setPre("friend-goods-price-result", { error: "shopId 和 goodsId 都不能为空" });
@@ -1480,7 +1655,8 @@
     }
 
     async function queryFriendShop() {
-      const friendRoleId = Number(els["friend-shop-role-id"].value || 0);
+      const selectedRoleIds = getSelectedFriendRoleIds();
+      const friendRoleId = Number(els["friend-shop-role-id"].value || selectedRoleIds[0] || 0);
       const timeout = asNumber(els["friend-shop-timeout"].value, 10);
       const parsedShopIds = parseStringList(els["friend-shop-ids"].value);
       const shopIds = parsedShopIds.length ? parsedShopIds : parseStringList(els["manual-shop-id"].value);
@@ -1589,6 +1765,7 @@
     els["observe-shop-sync"].addEventListener("click", observeShopSync);
     els["observe-inbound-button"].addEventListener("click", observeInboundMessages);
     els["bind-domain-shop-button"].addEventListener("click", bindCurrentShopToDomain);
+    els["query-friend-list-button"].addEventListener("click", queryFriendList);
     els["query-friend-goods-button"].addEventListener("click", queryFriendGoodsPrice);
     els["query-friend-shop-button"].addEventListener("click", queryFriendShop);
 
@@ -1646,6 +1823,10 @@
       renderLocalGoodsDetail(uiState.shopState);
     });
 
+    els["friend-list-select"].addEventListener("change", () => {
+      syncSelectedFriendInputs();
+    });
+
     setPre("query-result", "等待查询结果...");
     setPre("domain-dev-result", "等待整理后的 domainshop 结果...");
     setPre("domain-switch-result", "等待地区切换结果...");
@@ -1657,6 +1838,7 @@
     if (els["domainshop-goods-detail"]) {
       els["domainshop-goods-detail"].textContent = "点击上方商品条目后，这里会展示该商品近 7 天的全部价格；其中 [0] 为今日价格。";
     }
+    setPre("friend-list-result", "等待好友列表结果...");
     setPre("friend-goods-price-result", "等待好友商品价格结果...");
     setPre("friend-shop-result", "等待好友商店结果...");
     setPre("shop-debug-result", "等待整理后的调度终端摘要...");

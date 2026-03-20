@@ -56,6 +56,11 @@ class DomainSwitchRequest(BaseModel):
     timeout: float = Field(default=10.0, ge=1.0, le=60.0)
 
 
+class FriendListQueryRequest(BaseModel):
+    timeout: float = Field(default=10.0, ge=1.0, le=60.0)
+    info_type: int = Field(default=0, ge=0, le=1)
+
+
 class ShopFriendGoodsPriceRequest(BaseModel):
     shop_id: str = Field(..., min_length=1)
     goods_id: str = Field(..., min_length=1)
@@ -140,6 +145,13 @@ def create_app(session_manager: EndfieldSessionManager) -> FastAPI:
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.get("/api/plugins/shop-price-query/friend-list")
+    async def get_shop_price_friend_list() -> dict[str, object]:
+        try:
+            return await session_manager.get_shop_price_friend_list()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.post("/api/plugins/shop-price-query/domain-development/read-version")
     async def read_domain_development_version(
         payload: DomainDevelopmentReadVersionRequest,
@@ -194,6 +206,16 @@ def create_app(session_manager: EndfieldSessionManager) -> FastAPI:
             return await session_manager.observe_inbound_messages(
                 timeout=payload.timeout,
                 msgid=payload.msgid,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/plugins/shop-price-query/friend-list/query")
+    async def query_friend_list(payload: FriendListQueryRequest) -> dict[str, object]:
+        try:
+            return await session_manager.query_friend_list(
+                timeout=payload.timeout,
+                info_type=payload.info_type,
             )
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc

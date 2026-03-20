@@ -28,9 +28,13 @@ logger = logging.getLogger(__name__)
 
 MSG_ID_CS_ITEM_BAG_CHG_SPACESHIP_CHAPTER = 1033
 MSG_ID_SC_ITEM_BAG_CHG_SPACESHIP_CHAPTER = 1036
+MSG_ID_CS_FRIEND_LIST_SIMPLE_SYNC = 539
+MSG_ID_CS_FRIEND_LIST_QUERY = 540
 MSG_ID_CS_SHOP_BEGIN = 1100
 MSG_ID_CS_SHOP_QUERY_FRIEND_GOODS_PRICE = 1115
 MSG_ID_CS_SHOP_QUERY_FRIEND_SHOP = 1117
+MSG_ID_SC_FRIEND_LIST_SIMPLE_SYNC = 710
+MSG_ID_SC_FRIEND_LIST_QUERY = 711
 MSG_ID_SC_SHOP_BEGIN = 1351
 MSG_ID_SC_SHOP_SYNC = 1352
 MSG_ID_SC_SHOP_QUERY_FRIEND_GOODS_PRICE = 1364
@@ -59,6 +63,8 @@ SHOP_REFRESH_DATA_CASE_NAMES = {
 MESSAGE_NAMES = {
     MSG_ID_SC_ERROR: "ScError",
     MSG_ID_SC_ITEM_BAG_CHG_SPACESHIP_CHAPTER: "ScItemBagChgSpaceshipChapter",
+    MSG_ID_SC_FRIEND_LIST_SIMPLE_SYNC: "ScFriendListSimpleSync",
+    MSG_ID_SC_FRIEND_LIST_QUERY: "ScFriendListQuery",
     MSG_ID_SC_SHOP_BEGIN: "ScShopBegin",
     MSG_ID_SC_SHOP_SYNC: "ScShopSync",
     MSG_ID_SC_SHOP_QUERY_FRIEND_GOODS_PRICE: "ScShopQueryFriendGoodsPrice",
@@ -754,6 +760,193 @@ def _parse_goods_his_price(data: bytes) -> dict[str, Any]:
     return out
 
 
+def _parse_friend_simple_info(data: bytes) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "role_id": 0,
+        "last_logout_time": 0,
+        "online": False,
+        "adventure_level": 0,
+        "create_time": 0,
+        "help_flag": False,
+        "clue_flag": False,
+        "name": "",
+        "remark_name": "",
+        "help_status": 0,
+        "guest_room_unlock": False,
+        "short_id": "",
+        "signature": "",
+        "user_avatar_id": 0,
+        "user_avatar_frame_id": 0,
+        "business_card_topic_id": 0,
+        "clue_room_unlock": False,
+    }
+    for field_no, wire, value in iter_fields(data):
+        if wire == 0 and isinstance(value, int):
+            if field_no == 1:
+                out["role_id"] = int(value)
+            elif field_no == 2:
+                out["last_logout_time"] = int(value)
+            elif field_no == 3:
+                out["online"] = bool(value)
+            elif field_no == 4:
+                out["adventure_level"] = int(value)
+            elif field_no == 5:
+                out["create_time"] = int(value)
+            elif field_no == 6:
+                out["help_flag"] = bool(value)
+            elif field_no == 7:
+                out["clue_flag"] = bool(value)
+            elif field_no == 10:
+                out["help_status"] = int(value)
+            elif field_no == 11:
+                out["guest_room_unlock"] = bool(value)
+            elif field_no == 14:
+                out["user_avatar_id"] = int(value)
+            elif field_no == 15:
+                out["user_avatar_frame_id"] = int(value)
+            elif field_no == 16:
+                out["business_card_topic_id"] = int(value)
+            elif field_no == 17:
+                out["clue_room_unlock"] = bool(value)
+        elif wire == 2 and isinstance(value, bytes):
+            if field_no == 8:
+                out["name"] = _decode_text(value)
+            elif field_no == 9:
+                out["remark_name"] = _decode_text(value)
+            elif field_no == 12:
+                out["short_id"] = _decode_text(value)
+            elif field_no == 13:
+                out["signature"] = _decode_text(value)
+    return out
+
+
+def _parse_friend_list_simple_sync(data: bytes) -> dict[str, Any]:
+    friend_list: list[dict[str, Any]] = []
+    for field_no, wire, value in iter_fields(data):
+        if field_no == 1 and wire == 2 and isinstance(value, bytes):
+            friend_list.append(_parse_friend_simple_info(value))
+    role_ids = [
+        int(item.get("role_id", 0) or 0)
+        for item in friend_list
+        if int(item.get("role_id", 0) or 0) > 0
+    ]
+    return {"friend_list": friend_list, "count": len(friend_list), "role_ids": role_ids}
+
+
+def _parse_friend_base_user_info(data: bytes) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "role_id": 0,
+        "name": "",
+        "short_id": "",
+        "last_login_time": 0,
+        "last_logout_time": 0,
+        "online": False,
+        "adventure_level": 0,
+        "signature": "",
+        "business_card_topic_id": 0,
+        "user_avatar_id": 0,
+        "user_avatar_frame_id": 0,
+    }
+    for field_no, wire, value in iter_fields(data):
+        if wire == 0 and isinstance(value, int):
+            if field_no == 1:
+                out["role_id"] = int(value)
+            elif field_no == 5:
+                out["last_login_time"] = int(value)
+            elif field_no == 6:
+                out["last_logout_time"] = int(value)
+            elif field_no == 7:
+                out["online"] = bool(value)
+            elif field_no == 8:
+                out["adventure_level"] = int(value)
+            elif field_no == 11:
+                out["business_card_topic_id"] = int(value)
+            elif field_no == 12:
+                out["user_avatar_id"] = int(value)
+            elif field_no == 13:
+                out["user_avatar_frame_id"] = int(value)
+        elif wire == 2 and isinstance(value, bytes):
+            if field_no == 3:
+                out["name"] = _decode_text(value)
+            elif field_no == 4:
+                out["short_id"] = _decode_text(value)
+            elif field_no == 9:
+                out["signature"] = _decode_text(value)
+    return out
+
+
+def _parse_friend_spaceship_default_data(data: bytes) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "help_flag": False,
+        "clue_flag": False,
+        "unlock_guest_room": False,
+        "help_status": 0,
+        "unlock_clue_room": False,
+    }
+    for field_no, wire, value in iter_fields(data):
+        if wire != 0 or not isinstance(value, int):
+            continue
+        if field_no == 1:
+            out["help_flag"] = bool(value)
+        elif field_no == 2:
+            out["clue_flag"] = bool(value)
+        elif field_no == 3:
+            out["unlock_guest_room"] = bool(value)
+        elif field_no == 4:
+            out["help_status"] = int(value)
+        elif field_no == 5:
+            out["unlock_clue_room"] = bool(value)
+    return out
+
+
+def _parse_friend_user_info(data: bytes) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "data_type": 0,
+        "base_data": {},
+        "spaceship_default": {},
+    }
+    for field_no, wire, value in iter_fields(data):
+        if field_no == 1 and wire == 0 and isinstance(value, int):
+            out["data_type"] = int(value)
+        elif field_no == 2 and wire == 2 and isinstance(value, bytes):
+            out["base_data"] = _parse_friend_base_user_info(value)
+        elif field_no == 3 and wire == 2 and isinstance(value, bytes):
+            out["spaceship_default"] = _parse_friend_spaceship_default_data(value)
+    return out
+
+
+def _parse_friend_info(data: bytes) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "role_id": 0,
+        "create_time": 0,
+        "remark_name": "",
+        "friend_user_info": {},
+    }
+    for field_no, wire, value in iter_fields(data):
+        if field_no == 1 and wire == 2 and isinstance(value, bytes):
+            out["friend_user_info"] = _parse_friend_user_info(value)
+        elif field_no == 2 and wire == 0 and isinstance(value, int):
+            out["create_time"] = int(value)
+        elif field_no == 3 and wire == 2 and isinstance(value, bytes):
+            out["remark_name"] = _decode_text(value)
+    base_data = ((out.get("friend_user_info") or {}).get("base_data") or {})
+    out["role_id"] = int(base_data.get("role_id", 0) or 0)
+    return out
+
+
+def _parse_friend_list_query_response(data: bytes) -> dict[str, Any]:
+    friend_list: list[dict[str, Any]] = []
+    for field_no, wire, value in iter_fields(data):
+        if field_no == 1 and wire == 2 and isinstance(value, bytes):
+            friend_list.append(_parse_friend_info(value))
+    role_ids = [
+        int(item.get("role_id", 0) or 0)
+        for item in friend_list
+        if int(item.get("role_id", 0) or 0) > 0
+    ]
+    return {"friend_list": friend_list, "count": len(friend_list), "role_ids": role_ids}
+
+
 def _parse_shop_goods_price(data: bytes) -> dict[str, Any]:
     discount_count = 0
     for field_no, wire, value in iter_fields(data):
@@ -802,6 +995,17 @@ def build_shop_begin_body() -> bytes:
     return b""
 
 
+def build_friend_list_simple_sync_body() -> bytes:
+    return b""
+
+
+def build_friend_list_query_body(role_ids: Iterable[int], *, info_type: int = 0) -> bytes:
+    body = encode_uint64(1, int(info_type))
+    for role_id in role_ids:
+        body += encode_uint64(2, int(role_id))
+    return body
+
+
 def build_query_friend_goods_price_body(
     shop_id: str, goods_id: str, role_ids: Iterable[int]
 ) -> bytes:
@@ -846,10 +1050,13 @@ class ShopPriceQueryPlugin(PluginBase):
         self._last_shop_sync_parse_meta: Optional[dict[str, Any]] = None
         self._last_shop_sync_feedback: Optional[dict[str, Any]] = None
         self._domain_shop_bindings = self._load_domain_shop_bindings()
+        self._friend_simple_list: dict[str, dict[str, Any]] = {}
+        self._friend_details: dict[str, dict[str, Any]] = {}
 
         self._last_domain_version_request: Optional[dict[str, Any]] = None
         self._last_domain_switch_request: Optional[dict[str, Any]] = None
         self._last_shop_begin_request: Optional[dict[str, Any]] = None
+        self._last_friend_list_query: Optional[dict[str, Any]] = None
         self._last_friend_goods_price_query: Optional[dict[str, Any]] = None
         self._last_friend_shop_query: Optional[dict[str, Any]] = None
 
@@ -901,6 +1108,88 @@ class ShopPriceQueryPlugin(PluginBase):
             json.dumps(payload, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+
+    def _apply_friend_list_simple_sync(self, parsed: dict[str, Any]) -> None:
+        for item in parsed.get("friend_list") or []:
+            role_id = int(item.get("role_id", 0) or 0)
+            if role_id <= 0:
+                continue
+            self._friend_simple_list[str(role_id)] = dict(item)
+
+    def _apply_friend_list_query(self, parsed: dict[str, Any]) -> None:
+        for item in parsed.get("friend_list") or []:
+            role_id = int(item.get("role_id", 0) or 0)
+            if role_id <= 0:
+                continue
+            self._friend_details[str(role_id)] = dict(item)
+
+    def _serialize_friend_list(self) -> list[dict[str, Any]]:
+        role_keys = sorted(
+            set(self._friend_simple_list.keys()) | set(self._friend_details.keys()),
+            key=lambda item: int(item),
+        )
+        entries: list[dict[str, Any]] = []
+        for role_key in role_keys:
+            simple = dict(self._friend_simple_list.get(role_key) or {})
+            detail = dict(self._friend_details.get(role_key) or {})
+            friend_user_info = dict(detail.get("friend_user_info") or {})
+            base_data = dict(friend_user_info.get("base_data") or {})
+            spaceship_default = dict(friend_user_info.get("spaceship_default") or {})
+            role_id = int(base_data.get("role_id", simple.get("role_id", 0)) or 0)
+            entries.append(
+                {
+                    "role_id": role_id,
+                    "name": str(base_data.get("name") or simple.get("name") or ""),
+                    "remark_name": str(detail.get("remark_name") or simple.get("remark_name") or ""),
+                    "short_id": str(base_data.get("short_id") or simple.get("short_id") or ""),
+                    "online": bool(base_data.get("online", simple.get("online", False))),
+                    "adventure_level": int(
+                        base_data.get("adventure_level", simple.get("adventure_level", 0)) or 0
+                    ),
+                    "signature": str(base_data.get("signature") or simple.get("signature") or ""),
+                    "create_time": int(detail.get("create_time", simple.get("create_time", 0)) or 0),
+                    "last_login_time": int(base_data.get("last_login_time", 0) or 0),
+                    "last_logout_time": int(
+                        base_data.get("last_logout_time", simple.get("last_logout_time", 0)) or 0
+                    ),
+                    "user_avatar_id": int(
+                        base_data.get("user_avatar_id", simple.get("user_avatar_id", 0)) or 0
+                    ),
+                    "user_avatar_frame_id": int(
+                        base_data.get("user_avatar_frame_id", simple.get("user_avatar_frame_id", 0)) or 0
+                    ),
+                    "business_card_topic_id": int(
+                        base_data.get("business_card_topic_id", simple.get("business_card_topic_id", 0)) or 0
+                    ),
+                    "help_flag": bool(spaceship_default.get("help_flag", simple.get("help_flag", False))),
+                    "clue_flag": bool(spaceship_default.get("clue_flag", simple.get("clue_flag", False))),
+                    "help_status": int(
+                        spaceship_default.get("help_status", simple.get("help_status", 0)) or 0
+                    ),
+                    "guest_room_unlock": bool(
+                        spaceship_default.get("unlock_guest_room", simple.get("guest_room_unlock", False))
+                    ),
+                    "clue_room_unlock": bool(
+                        spaceship_default.get("unlock_clue_room", simple.get("clue_room_unlock", False))
+                    ),
+                    "source": [
+                        source
+                        for source, present in (
+                            ("simple_sync", bool(simple)),
+                            ("query", bool(detail)),
+                        )
+                        if present
+                    ],
+                }
+            )
+        entries.sort(
+            key=lambda item: (
+                0 if item.get("online") else 1,
+                str(item.get("remark_name") or item.get("name") or ""),
+                int(item.get("role_id", 0) or 0),
+            )
+        )
+        return entries
 
     def _message_name(self, msgid: int) -> str:
         return MESSAGE_NAMES.get(int(msgid), f"Msg{int(msgid)}")
@@ -1406,6 +1695,7 @@ class ShopPriceQueryPlugin(PluginBase):
     def get_state(self) -> dict[str, Any]:
         derived_domains = self._build_domain_candidates()
         domainshop_summary = self._build_domainshop_summary()
+        friend_list = self._serialize_friend_list()
         return {
             "plugin": self.name,
             "generated_at": _now_ts(),
@@ -1442,6 +1732,7 @@ class ShopPriceQueryPlugin(PluginBase):
                 for key, value in sorted(self._refresh_case_counts.items())
             ],
             "bindings": self._domain_shop_bindings,
+            "friend_list": friend_list,
             "message_counters": self._serialize_counter(self._message_counters),
             "raw_message_counters": self._serialize_counter(self._raw_message_counters),
             "recent_events": list(self._recent_events),
@@ -1449,6 +1740,7 @@ class ShopPriceQueryPlugin(PluginBase):
             "last_domain_version_request": self._last_domain_version_request,
             "last_domain_switch_request": self._last_domain_switch_request,
             "last_shop_begin_request": self._last_shop_begin_request,
+            "last_friend_list_query": self._last_friend_list_query,
             "last_friend_goods_price_query": self._last_friend_goods_price_query,
             "last_friend_shop_query": self._last_friend_shop_query,
             "summary": {
@@ -1471,6 +1763,7 @@ class ShopPriceQueryPlugin(PluginBase):
                 "domain_rand_goods_count": sum(
                     int(shop.get("domain_rand_goods_count", 0) or 0) for shop in self._shops.values()
                 ),
+                "friend_count": len(friend_list),
                 "bound_domain_count": len(self._domain_shop_bindings),
                 "current_domain_id": self._current_domain_id,
                 "last_shop_sync_parse_source": str(
@@ -1566,6 +1859,28 @@ class ShopPriceQueryPlugin(PluginBase):
             event["parsed"] = parsed
             return event
 
+        if msgid == MSG_ID_SC_FRIEND_LIST_SIMPLE_SYNC:
+            parsed = _parse_friend_list_simple_sync(body)
+            self._apply_friend_list_simple_sync(parsed)
+            event["kind"] = "friend_list_simple_sync"
+            event["summary"] = {
+                "count": int(parsed.get("count", 0) or 0),
+                "role_ids": parsed.get("role_ids") or [],
+            }
+            event["parsed"] = parsed
+            return event
+
+        if msgid == MSG_ID_SC_FRIEND_LIST_QUERY:
+            parsed = _parse_friend_list_query_response(body)
+            self._apply_friend_list_query(parsed)
+            event["kind"] = "friend_list_query"
+            event["summary"] = {
+                "count": int(parsed.get("count", 0) or 0),
+                "role_ids": parsed.get("role_ids") or [],
+            }
+            event["parsed"] = parsed
+            return event
+
         if msgid == MSG_ID_SC_SHOP_BEGIN:
             event["kind"] = "shop_begin"
             event["summary"] = {"fields": _summarize_proto_field_list(body, limit=8)}
@@ -1648,6 +1963,8 @@ class ShopPriceQueryPlugin(PluginBase):
             MSG_ID_SC_DOMAIN_DEVELOPMENT_SYSTEM_SYNC,
             MSG_ID_SC_DOMAIN_DEVELOPMENT_SYNC,
             MSG_ID_SC_DOMAIN_DEVELOPMENT_READ_VERSION_INFO_MODIFY,
+            MSG_ID_SC_FRIEND_LIST_SIMPLE_SYNC,
+            MSG_ID_SC_FRIEND_LIST_QUERY,
             MSG_ID_SC_SHOP_BEGIN,
             MSG_ID_SC_SHOP_SYNC,
             MSG_ID_SC_SHOP_QUERY_FRIEND_GOODS_PRICE,
@@ -2025,6 +2342,74 @@ class ShopPriceQueryPlugin(PluginBase):
                 return {"timeout": False, "observed": observed, "state": self.get_state()}
             except asyncio.TimeoutError:
                 return {"timeout": True, "observed": None, "state": self.get_state()}
+
+    def get_friend_list(self) -> dict[str, Any]:
+        friends = self._serialize_friend_list()
+        return {
+            "generated_at": _now_ts(),
+            "generated_at_text": _now_iso(),
+            "count": len(friends),
+            "friends": friends,
+        }
+
+    async def query_friend_list(
+        self,
+        *,
+        timeout: float = 10.0,
+        info_type: int = 0,
+    ) -> dict[str, Any]:
+        async with self._operation_lock:
+            request_started = _now_ts()
+            normalized_info_type = int(info_type)
+            simple_send_meta, simple_body = await self.tcp_client.request_message(
+                MSG_ID_CS_FRIEND_LIST_SIMPLE_SYNC,
+                build_friend_list_simple_sync_body(),
+                response_msgid=MSG_ID_SC_FRIEND_LIST_SIMPLE_SYNC,
+                timeout=float(timeout),
+            )
+            simple_parsed = _parse_friend_list_simple_sync(simple_body)
+            self._apply_friend_list_simple_sync(simple_parsed)
+
+            role_ids = [
+                int(item)
+                for item in (simple_parsed.get("role_ids") or [])
+                if int(item or 0) > 0
+            ]
+
+            query_send_meta = None
+            query_error = ""
+            query_parsed = {"friend_list": [], "count": 0, "role_ids": []}
+            if role_ids:
+                try:
+                    query_send_meta, query_body = await self.tcp_client.request_message(
+                        MSG_ID_CS_FRIEND_LIST_QUERY,
+                        build_friend_list_query_body(role_ids, info_type=normalized_info_type),
+                        response_msgid=MSG_ID_SC_FRIEND_LIST_QUERY,
+                        timeout=float(timeout),
+                    )
+                    query_parsed = _parse_friend_list_query_response(query_body)
+                    self._apply_friend_list_query(query_parsed)
+                except Exception as exc:
+                    query_error = str(exc)
+
+            payload = {
+                "sent_at": request_started,
+                "sent_at_text": _now_iso(request_started),
+                "timeout": float(timeout),
+                "info_type": normalized_info_type,
+                "simple_sync": {
+                    "send_meta": simple_send_meta,
+                    "response": simple_parsed,
+                },
+                "query": {
+                    "send_meta": query_send_meta,
+                    "response": query_parsed,
+                    "error": query_error,
+                },
+                "state": self.get_state(),
+            }
+            self._last_friend_list_query = payload
+            return payload
 
     async def query_friend_goods_price(
         self,

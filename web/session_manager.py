@@ -244,6 +244,13 @@ class EndfieldSessionManager:
         self._state.last_shop_price_state = state
         return summary
 
+    async def get_shop_price_friend_list(self) -> dict[str, Any]:
+        plugin = self._get_shop_price_plugin()
+        result = plugin.get_friend_list()
+        state = plugin.get_state()
+        self._state.last_shop_price_state = state
+        return result
+
     async def read_domain_development_versions(
         self,
         chapter_id: Optional[str] = None,
@@ -292,6 +299,17 @@ class EndfieldSessionManager:
     ) -> dict[str, Any]:
         plugin = self._get_shop_price_plugin()
         result = await plugin.observe_inbound_messages(timeout=timeout, msgid=msgid)
+        self._state.last_shop_price_state = result.get("state")
+        return result
+
+    async def query_friend_list(
+        self,
+        *,
+        timeout: float = 10.0,
+        info_type: int = 0,
+    ) -> dict[str, Any]:
+        plugin = self._get_shop_price_plugin()
+        result = await plugin.query_friend_list(timeout=timeout, info_type=info_type)
         self._state.last_shop_price_state = result.get("state")
         return result
 
